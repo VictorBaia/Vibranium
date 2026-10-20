@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import com.music.bitchord.data.model.Song
 
 fun Modifier.thumbnailBorder(shape: Shape): Modifier = composed {
@@ -26,6 +27,14 @@ fun Modifier.thumbnailBorder(shape: Shape): Modifier = composed {
         color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f),
         shape = shape
     )
+}
+
+@Composable
+fun ExplicitBadge(color: Color, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text("E", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = color,
+            modifier = Modifier.border(1.dp, color, RoundedCornerShape(2.dp)).padding(horizontal = 3.dp))
+    }
 }
 
 /** A song title with the catalogue-standard outlined E for explicit audio. */
