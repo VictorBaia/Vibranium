@@ -168,6 +168,8 @@ import com.music.bitchord.ui.screens.ListenTogetherScreen
 import com.music.bitchord.ui.screens.NavidromeSettingsScreen
 import com.music.bitchord.ui.screens.PartyServerEditor
 import com.music.bitchord.ui.screens.SettingsScreen
+import com.music.bitchord.ui.screens.SignatureApiEditor
+import com.music.bitchord.ui.screens.WearOsScreen
 import com.music.bitchord.ui.screens.SourceEditorAlert
 import com.music.bitchord.ui.screens.SourcesScreen
 import com.music.bitchord.data.sources.TrackMatcher
@@ -2695,6 +2697,8 @@ private fun BitChordApp(
                                     type = BrowseType.PLAYLIST,
                                 )
                             },
+                            onOpenLogin = { showSpotifyCanvasAuth = true },
+                            onOpenTokenSetup = { showSpotifyCanvasAuth = true },
                             contentPadding = listPadding,
                         )
                     } else if (key == "discord") {
@@ -2790,6 +2794,8 @@ private fun BitChordApp(
                             },
                             onSpotifyCanvasAuth = { showSpotifyCanvasAuth = true },
                             onAppLanguage = { showAppLanguage = true },
+                            onWearOs = { settingsSubScreen = "wearos" },
+                            onEditSignatureApi = { settingsSubScreen = "signature_api" },
                             contentPadding = listPadding,
                         )
                     } else if (page != null && page.browseId.isDeviceFolder()) {
@@ -3362,6 +3368,11 @@ private fun BitChordApp(
                             )
                         }
                     }
+                    "wearos" -> WearOsScreen(contentPadding = listPadding)
+                    "signature_api" -> SignatureApiEditor(
+                        hazeState = hazeState,
+                        onDismiss = { settingsSubScreen = null },
+                    )
                     "account_scrobbling" -> {
                         Surface(
                             modifier = Modifier.fillMaxSize(),

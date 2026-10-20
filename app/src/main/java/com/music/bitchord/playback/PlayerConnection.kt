@@ -452,11 +452,26 @@ val MediaItem.queueTier: QueueTier
 
 /** @see Song.queueEntryId */
 val MediaItem.queueEntryId: String?
-    get() = mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY_ID)
+    get() = mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY_ID) ?: mediaItemEntryIds[this]
+
+internal val mediaItemTiers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<MediaItem, QueueTier>())
+internal val mediaItemEntryIds = java.util.Collections.synchronizedMap(java.util.WeakHashMap<MediaItem, String>())
+internal val mediaItemCanonicalIndices = java.util.Collections.synchronizedMap(java.util.WeakHashMap<MediaItem, Int>())
+
+val MediaItem.canonicalIndex: Int?
+    get() {
+        val extras = mediaMetadata.extras
+        if (extras != null && extras.containsKey(EXTRA_CANONICAL_INDEX)) {
+            val index = extras.getInt(EXTRA_CANONICAL_INDEX, -1)
+            if (index >= 0) return index
+        }
+        return mediaItemCanonicalIndices[this]
+    }
 
 /** Public metadata keys for queue categorization and immutable queue entry identity. */
 const val EXTRA_QUEUE_TIER = "bitchord.queueTier"
 const val EXTRA_QUEUE_ENTRY_ID = "bitchord.queueEntryId"
+const val EXTRA_CANONICAL_INDEX = "bitchord.canonicalIndex"
 
 /**
  * Marks a queue entry as AutoPlay's rather than the user's. Carried on the

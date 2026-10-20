@@ -91,6 +91,8 @@ data class Song(
     /** MediaStore timestamps used only to sort device and downloaded libraries. */
     val localDateAddedSeconds: Long? = null,
     val localDateModifiedSeconds: Long? = null,
+    /** Track number embedded in local audio metadata, when available. */
+    val trackNumber: Int? = null,
     /**
      * What a non-YouTube source says it can serve this recording at, as one of
      * `LOSSLESS`, `HIGH` or `LOW` — null for every row that didn't come from
@@ -152,6 +154,7 @@ data class Song(
         localPath: String? = null,
         localDateAddedSeconds: Long? = null,
         localDateModifiedSeconds: Long? = null,
+        trackNumber: Int? = null,
         sourceQuality: String? = null,
         isExplicit: Boolean? = null,
         playbackSource: String? = null,
@@ -178,6 +181,7 @@ data class Song(
         localPath = localPath,
         localDateAddedSeconds = localDateAddedSeconds,
         localDateModifiedSeconds = localDateModifiedSeconds,
+        trackNumber = trackNumber,
         sourceQuality = sourceQuality,
         isExplicit = isExplicit,
         playbackSource = playbackSource,
@@ -225,6 +229,21 @@ fun Song.artworkAt(px: Int): String? = thumbnailUrl.artworkAt(px)
 fun Song.isSameTrackAs(other: Song?): Boolean {
     other ?: return false
     return title == other.title && artist == other.artist
+}
+
+/** Match only the active row when duplicate catalogue entries are present. */
+fun playingRowMatcher(rows: List<Song>, current: Song?): (Song) -> Boolean {
+    current ?: return { false }
+    val sameId = rows.filter { it.videoId == current.videoId }
+    if (sameId.isNotEmpty()) {
+        val slot = current.setVideoId
+        if (slot != null && sameId.any { it.setVideoId == slot }) {
+            return { it.videoId == current.videoId && it.setVideoId == slot }
+        }
+        return { it.videoId == current.videoId }
+    }
+    val match = rows.firstOrNull { it.isSameTrackAs(current) } ?: return { false }
+    return { it == match }
 }
 
 /**

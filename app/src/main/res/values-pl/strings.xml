@@ -177,8 +177,6 @@
     <string name="japanese">Japoński</string>
     <string name="russian">Rosyjski</string>
     <string name="chinese">Chiński (uproszczony)</string>
-    <string name="chinese_simplified">Chiński (uproszczony)</string>
-    <string name="chinese_traditional">Chiński (tradycyjny)</string>
     <string name="italian">Włoski</string>
     <string name="turkish">Turecki</string>
     <string name="thai">Tajski</string>
@@ -225,8 +223,6 @@
     <string name="stop_music_on_close_subtitle">Zatrzymuje odtwarzanie po usunięciu z listy ostatnich aplikacji</string>
     <string name="hide_volume_bar">Ukryj pasek głośności</string>
     <string name="hide_volume_bar_subtitle">Usuwa suwak głośności z głównego odtwarzacza</string>
-    <string name="hide_status_bar_in_player">Ukryj pasek stanu w odtwarzaczu</string>
-    <string name="hide_status_bar_in_player_subtitle">Ukrywa zegar, baterię i ikony powiadomień, gdy główny odtwarzacz jest otwarty</string>
     <string name="hide_song_status">Ukryj status utworu</string>
     <string name="hide_song_status_subtitle">Ukrywa tekst „Odtwarzane z” lub „Odtwarzane przez” w głównym odtwarzaczu</string>
     <string name="off">Wyłączone</string>
@@ -427,7 +423,7 @@
     <string name="upgrade_length_slack_footer">Większa tolerancja akceptuje więcej dopasowań ze źródeł; mniejsza jest bardziej rygorystyczna. Domyślnie 3 sekundy.</string>
     <string name="seconds_short">%1$d s</string>
     <string name="spdc_token">Token sp_dc</string>
-    <string name="spotify_canvas_setup">Skonfiguruj Spotify</string>
+    <string name="spotify_canvas_setup">Konfiguracja Spotify Canvas</string>
     <string name="spotify_canvas_setup_description">Aby korzystać ze Spotify Canvas, podaj plik cookie sp_dc ze Spotify.</string>
     <string name="spotify_canvas_setup_steps">1. Zaloguj się na open.spotify.com w przeglądarce.
 2. Otwórz Narzędzia deweloperskie &gt; Application &gt; Cookies.
@@ -1330,8 +1326,15 @@
     <string name="spotify_import_unmatched">%1$d utworów nie znaleziono w YouTube Music</string>
     <string name="spotify_library_subtitle">Twoje playlisty Spotify</string>
     <string name="spotify_sign_in">Zaloguj się przez Spotify</string>
-    <string name="spotify_use_spdc_token">Użyj tokena sp_dc</string>
     <string name="spotify_track_unavailable">Nie znaleziono tego utworu w YouTube Music</string>
+
+    <!-- Upstream strings retained alongside local translations. -->
+    <string name="chinese_simplified">Chiński (uproszczony)</string>
+    <string name="chinese_traditional">Chiński (tradycyjny)</string>
+    <string name="hide_status_bar_in_player">Ukryj pasek stanu w odtwarzaczu</string>
+    <string name="hide_status_bar_in_player_subtitle">Ukrywa zegar, baterię i ikony powiadomień, gdy główny odtwarzacz jest otwarty</string>
+    <string name="convert_to_video">Konwertuj na wideo</string>
+    <string name="spotify_use_spdc_token">Użyj tokena sp_dc</string>
     <string name="artist_signatures">Podpisy artystów</string>
     <string name="artist_signatures_subtitle">Pokazuje własnoręczny podpis, gdy Apple Music nie ma logo tytułowego</string>
     <string name="artist_signatures_url">Adres URL interfejsu API podpisów</string>

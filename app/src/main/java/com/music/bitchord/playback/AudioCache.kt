@@ -73,6 +73,8 @@ import kotlin.coroutines.coroutineContext
 @UnstableApi
 object AudioCache {
 
+    const val WATCH_READ_PARAM = "watch_read"
+
     private const val TAG = "BitChord"
 
     /**

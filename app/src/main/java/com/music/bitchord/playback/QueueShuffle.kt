@@ -34,6 +34,13 @@ import java.util.UUID
  */
 object QueueShuffle {
 
+    /** Apply the queue permutation sent by the reorder sheet. */
+    fun reorderFromCommand(player: Player, args: Bundle) {
+        val from = args.getInt(EXTRA_REORDER_FROM, -1)
+        val order = args.getIntArray(EXTRA_REORDER_ORDER) ?: return
+        if (from >= 0) reorder(player, from, order)
+    }
+
     private val _enabled = MutableStateFlow(false)
 
     /** Whether the queue is currently held in shuffled order. */

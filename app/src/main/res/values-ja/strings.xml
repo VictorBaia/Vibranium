@@ -169,8 +169,6 @@
     <string name="japanese">日本語</string>
     <string name="russian">ロシア語</string>
     <string name="chinese">中国語（簡体字）</string>
-    <string name="chinese_simplified">中国語（簡体字）</string>
-    <string name="chinese_traditional">中国語（繁体字）</string>
     <string name="hebrew">ヘブライ語</string>
     <string name="italian">イタリア語</string>
     <string name="turkish">トルコ語</string>
@@ -222,8 +220,6 @@
     <string name="stop_music_on_close_subtitle">アプリを最近のアプリから消すと再生を停止します</string>
     <string name="hide_volume_bar">音量バーを隠す</string>
     <string name="hide_volume_bar_subtitle">メインプレイヤーから音量スライダーを削除します</string>
-    <string name="hide_status_bar_in_player">プレイヤーでステータスバーを隠す</string>
-    <string name="hide_status_bar_in_player_subtitle">メインプレイヤーを開いている間、時計・バッテリー・通知アイコンを非表示にします</string>
     <string name="hide_song_status">曲のステータスを隠す</string>
     <string name="hide_song_status_subtitle">メインプレーヤーの「再生元」や「再生者」の表示を隠します</string>
     <string name="off">オフ</string>
@@ -451,7 +447,7 @@
     <string name="upgrade_length_slack_footer">許容差を大きくするとソースの一致が増え、小さくすると厳しくなります。既定値は3秒です。</string>
     <string name="seconds_short">%1$d秒</string>
     <string name="spdc_token">sp_dcトークン</string>
-    <string name="spotify_canvas_setup">Spotify を設定</string>
+    <string name="spotify_canvas_setup">Spotify Canvasの設定</string>
     <string name="spotify_canvas_setup_description">Spotify Canvasを使うには、Spotifyのsp_dc cookieを入力してください。</string>
     <string name="spotify_canvas_setup_steps">1. ブラウザでopen.spotify.comにログインします。\n2. デベロッパーツールを開き、[Application]と[Cookies]を選択します。\n3. sp_dc cookieの値をコピーします。\n4. 下に貼り付けます。</string>
     <string name="spotify_canvas_auto_hide">操作ボタンを自動で隠す</string>
@@ -1268,8 +1264,15 @@
     <string name="spotify_import_unmatched">%1$d 曲が YouTube Music で見つかりませんでした</string>
     <string name="spotify_library_subtitle">あなたの Spotify プレイリスト</string>
     <string name="spotify_sign_in">Spotify でサインイン</string>
-    <string name="spotify_use_spdc_token">sp_dc トークンを使用</string>
     <string name="spotify_track_unavailable">その曲は YouTube Music で見つかりません</string>
+
+    <!-- Upstream strings retained alongside local translations. -->
+    <string name="chinese_simplified">中国語（簡体字）</string>
+    <string name="chinese_traditional">中国語（繁体字）</string>
+    <string name="hide_status_bar_in_player">プレイヤーでステータスバーを隠す</string>
+    <string name="hide_status_bar_in_player_subtitle">メインプレイヤーを開いている間、時計・バッテリー・通知アイコンを非表示にします</string>
+    <string name="convert_to_video">動画に変換</string>
+    <string name="spotify_use_spdc_token">sp_dc トークンを使用</string>
     <string name="artist_signatures">アーティストの署名</string>
     <string name="artist_signatures_subtitle">Apple Musicにタイトルロゴがない場合に手書きの署名を表示します</string>
     <string name="artist_signatures_url">署名APIのURL</string>
