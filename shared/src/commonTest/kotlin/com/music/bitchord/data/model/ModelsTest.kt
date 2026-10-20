@@ -21,6 +21,30 @@ class ModelsTest {
         assertEquals("https://example.test/cover.jpg", "https://example.test/cover.jpg".artworkAt(720))
     }
 
+    @Test
+    fun navidromeArtworkCarriesOneBoundedServerSize() {
+        assertEquals(
+            "bitchord://navidrome-artwork/cover?account=listener&size=256",
+            "bitchord://navidrome-artwork/cover?account=listener".artworkAt(256),
+        )
+        assertEquals(
+            "bitchord://navidrome-artwork/cover?account=listener&size=1200",
+            "bitchord://navidrome-artwork/cover?account=listener&size=720".artworkAt(5_000),
+        )
+    }
+
+    @Test
+    fun originalNavidromeArtworkDropsAnyThumbnailSize() {
+        assertEquals(
+            "bitchord://navidrome-artwork/cover?account=listener&size=0",
+            "bitchord://navidrome-artwork/cover?account=listener&size=256".originalArtwork(),
+        )
+        assertEquals(
+            "bitchord://navidrome-artwork/cover?size=0",
+            "bitchord://navidrome-artwork/cover".originalArtwork(),
+        )
+    }
+
     private fun album(id: String) = ShelfItem(id, "", null, null, id)
     private fun song(id: String) = ShelfItem(id, "", null, id, null)
 

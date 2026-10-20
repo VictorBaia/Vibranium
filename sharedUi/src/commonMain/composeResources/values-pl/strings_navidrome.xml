@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">Dodaj do kolejki</string>
+    <string name="top_result">Najlepszy wynik</string>
+    <string name="artist">Artysta</string>
+    <string name="album">Albumu</string>
+    <string name="explore_under_construction">W budowie. Wróć później.</string>
+</resources>

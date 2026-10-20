@@ -126,6 +126,14 @@ class DownloadStoreTest {
     }
 
     @Test
+    fun `an account namespace isolates otherwise identical Navidrome downloads`() {
+        assertEquals(
+            "Arijit Singh - Kesariya [nd-account-a].flac",
+            DownloadStore.fileNameFor(song("Kesariya", "Arijit Singh"), "flac", "nd-account-a"),
+        )
+    }
+
+    @Test
     fun `characters a volume or a shell would object to are replaced`() {
         val name = DownloadStore.fileNameFor(song("A/B: C?", "D|E"), "m4a")
         assertEquals("D E - A B C.m4a", name)

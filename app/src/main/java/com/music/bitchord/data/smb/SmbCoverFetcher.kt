@@ -6,6 +6,7 @@ import coil3.fetch.FetchResult
 import coil3.fetch.Fetcher
 import coil3.fetch.SourceFetchResult
 import coil3.request.Options
+import com.music.bitchord.data.artwork.PersistentArtworkCache
 import okio.FileSystem
 import okio.buffer
 import okio.source
@@ -19,9 +20,14 @@ import okio.source
  * alongside the defaults: anything that isn't `smb://` falls straight
  * through to them.
  */
-class SmbCoverFetcher private constructor(private val url: String) : Fetcher {
+class SmbCoverFetcher private constructor(
+    private val url: String,
+    private val diskCache: coil3.disk.DiskCache?,
+) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
+        val cacheKey = PersistentArtworkCache.key("smb-artwork", url)
+        PersistentArtworkCache.open(diskCache, cacheKey)?.let { return it }
         val bytes = SmbClient.readFully(url)
         val mime = when (url.substringAfterLast('.', "").lowercase()) {
             "jpg", "jpeg" -> "image/jpeg"
@@ -29,6 +35,7 @@ class SmbCoverFetcher private constructor(private val url: String) : Fetcher {
             "webp" -> "image/webp"
             else -> null
         }
+        PersistentArtworkCache.store(diskCache, cacheKey, bytes, mime)?.let { return it }
         return SourceFetchResult(
             source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
             mimeType = mime,
@@ -38,6 +45,6 @@ class SmbCoverFetcher private constructor(private val url: String) : Fetcher {
 
     class Factory : Fetcher.Factory<String> {
         override fun create(data: String, options: Options, imageLoader: ImageLoader): Fetcher? =
-            if (SmbConfig.isSmbUrl(data)) SmbCoverFetcher(data) else null
+            if (SmbConfig.isSmbUrl(data)) SmbCoverFetcher(data, imageLoader.diskCache) else null
     }
 }

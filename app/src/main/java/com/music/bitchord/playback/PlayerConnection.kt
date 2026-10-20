@@ -1,5 +1,8 @@
 package com.music.bitchord.playback
 
+import com.music.bitchord.data.navidrome.NavidromeTranscoding
+import com.music.bitchord.data.settings.AppSettings
+
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
@@ -16,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.os.bundleOf
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -29,6 +33,10 @@ import com.music.bitchord.data.model.PlaybackSourceType
 import com.music.bitchord.data.model.QueueTier
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeIds
+import com.music.bitchord.data.navidrome.NavidromeArtworkProvider
+import com.music.bitchord.data.navidrome.NavidromeStore
 import com.music.bitchord.data.sources.SourceRegistry
 import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.download.Downloads
@@ -285,6 +293,13 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
         // main thread, for as long as the queue kept playing.
         var queueChanged = false
 
+        fun effectiveDurationMs(item: MediaItem?): Long {
+            val reported = player.duration
+            if (reported > 0L && reported != C.TIME_UNSET) return reported
+            return item?.mediaMetadata?.extras?.getString(EXTRA_DURATION)
+                ?.let(TrackMatcher::secondsOf)?.times(1_000L) ?: 0L
+        }
+
         fun sync(
             error: String? = null,
             rebuildQueue: Boolean = false,
@@ -306,7 +321,7 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
             state = state.copy(
                 song = item?.toSong(),
                 isPlaying = player.isPlaying,
-                durationMs = player.duration.coerceAtLeast(0L),
+                durationMs = effectiveDurationMs(item),
                 error = error,
                 isLoading = player.playbackState == Player.STATE_BUFFERING,
                 repeatMode = player.repeatMode,
@@ -365,7 +380,10 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
     LaunchedEffect(controller, state.isPlaying, foreground) {
         while (controller != null && state.isPlaying && foreground) {
             position.report(controller.currentPosition.coerceAtLeast(0L))
-            val duration = controller.duration.coerceAtLeast(0L)
+            val reported = controller.duration
+            val duration = if (reported > 0L && reported != C.TIME_UNSET) reported else {
+                state.song?.durationText?.let(TrackMatcher::secondsOf)?.times(1_000L) ?: 0L
+            }
             if (duration != state.durationMs) state = state.copy(durationMs = duration)
             delay(500)
         }
@@ -384,7 +402,13 @@ fun MediaItem.toSong() = Song(
     videoId = mediaId,
     title = mediaMetadata.title?.toString().orEmpty(),
     artist = mediaMetadata.artist?.toString().orEmpty(),
-    thumbnailUrl = mediaMetadata.artworkUri?.toString(),
+    // The artworkUri is intentionally a bounded content:// rendition for
+    // notifications. Preserve the source URI separately for app UI; for live
+    // queues created before that extra existed, reconstruct it from the
+    // provider URI so the full player still gets native Navidrome artwork.
+    thumbnailUrl = mediaMetadata.extras?.getString(EXTRA_ARTWORK_SOURCE)
+        ?: NavidromeArtworkProvider.sourceUri(mediaMetadata.artworkUri)
+        ?: mediaMetadata.artworkUri?.toString(),
     durationText = mediaMetadata.extras?.getString(EXTRA_DURATION),
     artistId = mediaMetadata.extras?.getString(EXTRA_ARTIST_ID),
     artists = mediaMetadata.extras?.artistsFromBundle() ?: emptyList(),
@@ -459,6 +483,7 @@ private const val EXTRA_PLAYBACK_SOURCE_ID = "bitchord.playbackSourceId"
  */
 private const val EXTRA_ARTIST_ID = "bitchord.artistId"
 private const val EXTRA_ALBUM_ID = "bitchord.albumId"
+private const val EXTRA_ARTWORK_SOURCE = "bitchord.artworkSource"
 
 /** @see Song.setVideoId */
 private const val EXTRA_SET_VIDEO_ID = "bitchord.setVideoId"
@@ -479,7 +504,7 @@ internal const val EXTRA_LOCAL_PATH = "bitchord.localPath"
  * with the other loses information. Carried so that [toSong] can give it back
  * to the live queue and matching code.
  */
-private const val EXTRA_DURATION = "bitchord.durationText"
+internal const val EXTRA_DURATION = "bitchord.durationText"
 private const val EXTRA_EXPLICIT = "bitchord.explicit"
 private const val EXTRA_IS_VIDEO = "bitchord.isVideo"
 private const val EXTRA_VIDEO_ORIGIN = "bitchord.isVideoOrigin"
@@ -550,6 +575,9 @@ private fun Song.matchQuery(): String = buildString {
 
 fun Song.toMediaItem(): MediaItem {
     val sourceTrack = SourceRegistry.parseTrackKey(videoId)
+    val navidromeSongId = NavidromeIds.parse(videoId)
+        ?.takeIf { it.entity == NavidromeEntity.SONG }
+        ?.rawId
     // A row from search or a playlist carries no file of its own, but the track
     // may still be on disk from a download — see [Downloads.saved].
     //
@@ -574,10 +602,30 @@ fun Song.toMediaItem(): MediaItem {
     // [MediaItem.toSong], so an item waiting in the live queue can carry a URI
     // that has become stale since it was created. Checking only the lookup
     // leaves that path unguarded.
-    val offlineUri = localUri?.takeUnless(Downloads::isMissingLocalFile)
-        ?: Downloads.verifiedSavedUri(videoId)
+    // This decision must happen before the MediaItem is built. Once a downloaded
+    // `file://` URI reaches AudioCache, there is no server request left to force.
+    val forceNavidromeStream = navidromeSongId != null &&
+        ((NavidromeStore.state.value as? NavidromeStore.State.Configured)
+            ?.config?.forceStreaming == true)
+    val offlineUri = if (forceNavidromeStream) null else {
+        localUri?.takeUnless(Downloads::isMissingLocalFile)
+            ?: Downloads.verifiedSavedUri(videoId)
+    }
     val uriString = offlineUri ?: when {
         videoId.startsWith("content://") || videoId.startsWith("file://") -> videoId
+        navidromeSongId != null -> {
+            val durationSeconds = TrackMatcher.secondsOf(durationText)?.toLong()
+            val requestUri = NavidromeIds.playbackRequestUri(
+                songId = navidromeSongId,
+                durationSeconds = durationSeconds,
+            )
+            val quality = NavidromeTranscoding.effective(AppSettings.meteredConnection.value)
+            Uri.parse(requestUri).buildUpon()
+                .appendQueryParameter("qf", quality.format ?: "raw")
+                .apply { quality.maxBitRateKbps?.let { appendQueryParameter("qk", it.toString()) } }
+                .build()
+                .toString()
+        }
         // Title, artist and runtime ride along in the URI because they are what
         // a cross-source match is made on, and the resolver runs on ExoPlayer's
         // loader thread with nothing but a DataSpec in hand — see
@@ -617,10 +665,15 @@ fun Song.toMediaItem(): MediaItem {
             // on: read back off the player, a track with no album here is a
             // track that cannot be filed under one.
             .setAlbumTitle(albumName)
+            .apply {
+                TrackMatcher.secondsOf(durationText)?.takeIf { it > 0 }?.let { seconds ->
+                    setDurationMs(seconds * 1_000L)
+                }
+            }
             // Sized here rather than left as stored: this is what the lock
             // screen, the notification and Android Auto draw, all of them
             // large, and none of them go back for a better copy later.
-            .setArtworkUri(artworkAt(NOTIFICATION_ART_PX)?.toUri())
+            .setArtworkUri(notificationArtworkUri(artworkAt(NOTIFICATION_ART_PX)))
             // System media surfaces (One UI's Now Bar, Android Auto, Assistant)
             // classify a session by its media type; untyped sessions get treated
             // as generic audio and lose the music-specific card.
@@ -647,7 +700,8 @@ fun Song.toMediaItem(): MediaItem {
                     offlineUri != null || durationText != null ||
                     artistId != null || albumId != null || setVideoId != null ||
                     isExplicit != null || isVideo || isVideoOrigin || radioName != null ||
-                    playbackSource != null || playbackSourceType != null || playbackSourceId != null
+                    playbackSource != null || playbackSourceType != null || playbackSourceId != null ||
+                    thumbnailUrl != null
                 ) {
                     setExtras(
                         bundleOf(
@@ -663,6 +717,10 @@ fun Song.toMediaItem(): MediaItem {
                             EXTRA_DURATION to durationText,
                             EXTRA_ARTIST_ID to artistId,
                             EXTRA_ALBUM_ID to albumId,
+                            // Keep the original app-facing URI. artworkUri is
+                            // converted above for notifications and must never
+                            // become the player's artwork source on round-trip.
+                            EXTRA_ARTWORK_SOURCE to thumbnailUrl,
                             EXTRA_SET_VIDEO_ID to setVideoId,
                             EXTRA_EXPLICIT to isExplicit,
                             EXTRA_IS_VIDEO to isVideo,
@@ -674,6 +732,12 @@ fun Song.toMediaItem(): MediaItem {
             .build(),
     )
     .build()
+}
+
+private fun notificationArtworkUri(url: String?): Uri? {
+    val coverId = url?.let(NavidromeIds::coverArtIdFromUri)
+    return coverId?.let { NavidromeArtworkProvider.uri(it, url?.let(NavidromeIds::artworkSizeFromUri)) }
+        ?: url?.toUri()
 }
 
 /**
@@ -719,6 +783,7 @@ private fun Song.directYouTubeUri(): String =
  */
 fun Song.hasYouTubeOriginal(): Boolean =
     videoId.isNotBlank() &&
+        NavidromeIds.parse(videoId) == null &&
         !videoId.startsWith("content://") &&
         !videoId.startsWith("file://") &&
         !isVideo &&
@@ -742,12 +807,15 @@ const val DIRECT_YOUTUBE_PARAMETER = "direct_youtube"
  * source-backed track differently again, so filing lines under it would scatter
  * one song's story across several names.
  */
-fun mediaIdIn(uri: Uri): String? = if (uri.authority == "source") {
-    val configId = uri.getQueryParameter("s")
-    val trackId = uri.getQueryParameter("t")
-    if (configId != null && trackId != null) SourceRegistry.trackKey(configId, trackId) else null
-} else {
-    uri.getQueryParameter("v")
+fun mediaIdIn(uri: Uri): String? = when {
+    uri.authority == "source" -> {
+        val configId = uri.getQueryParameter("s")
+        val trackId = uri.getQueryParameter("t")
+        if (configId != null && trackId != null) SourceRegistry.trackKey(configId, trackId) else null
+    }
+    uri.authority == "navidrome" -> NavidromeIds.songIdFromPlaybackUri(uri.toString())
+        ?.let(NavidromeIds::song)
+    else -> uri.getQueryParameter("v")
 }
 
 /**

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_source_youtube">YouTube</string>
+    <string name="pipeline_pcm_data_rate">Taxa de dados PCM</string>
+</resources>

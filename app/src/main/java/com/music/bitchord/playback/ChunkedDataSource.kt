@@ -11,6 +11,8 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import com.music.bitchord.data.innertube.PlayerClient
 import com.music.bitchord.data.innertube.StreamResolver
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER_VALUE
 import java.io.InterruptedIOException
 
 /**
@@ -88,7 +90,12 @@ class ChunkedDataSource(
                     // parse, which is the case most in need of naming — so fall
                     // back to the string itself rather than logging "null".
                     val who = dataSpec.uri.host ?: dataSpec.uri.toString().take(120)
-                    TrackLog.w(TAG, "$who refused the stream: ${e.message}")
+                    val message = if (dataSpec.isNavidromeRequest()) {
+                        "$who refused the Navidrome stream (${e.javaClass.simpleName})"
+                    } else {
+                        "$who refused the stream: ${e.message}"
+                    }
+                    TrackLog.w(TAG, message)
                     report(dataSpec, e)
                 }
                 throw e
@@ -121,11 +128,12 @@ class ChunkedDataSource(
             // the time this surfaces as a playback error. A cancelled read-ahead
             // arrives here too and means nothing — see [AudioCache.prefetchQueue].
             if (e !is InterruptedIOException) {
-                TrackLog.w(
-                    TAG,
-                    "range $position-${position + length - 1} refused for " +
-                        "${spec.uri.getQueryParameter("c")}: ${e.message}",
-                )
+                val detail = if (spec.isNavidromeRequest()) {
+                    "Navidrome (${e.javaClass.simpleName})"
+                } else {
+                    "${spec.uri.getQueryParameter("c")}: ${e.message}"
+                }
+                TrackLog.w(TAG, "range $position-${position + length - 1} refused for $detail")
                 // This is the only place a refusal of the *real* fetch is seen.
                 // Left here it is just a failed track; handed back, it is the
                 // one piece of evidence that retiring the client rests on.
@@ -145,10 +153,14 @@ class ChunkedDataSource(
      * isn't from a client it models, costs nothing here.
      */
     private fun report(spec: DataSpec, e: Exception) {
+        if (spec.isNavidromeRequest()) return
         if (e is HttpDataSource.InvalidResponseCodeException) {
             StreamResolver.onPlaybackRefused(spec.uri.toString(), e.responseCode)
         }
     }
+
+    private fun DataSpec.isNavidromeRequest(): Boolean =
+        httpRequestHeaders[NAVIDROME_SOURCE_HEADER] == NAVIDROME_SOURCE_HEADER_VALUE
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (passthrough) return upstream.read(buffer, offset, length)

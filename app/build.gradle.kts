@@ -82,6 +82,7 @@ android {
         targetSdk = 36
         versionCode = 26
         versionName = "1.8"
+        buildConfigField("boolean", "NAVIDROME_MODE", "true")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

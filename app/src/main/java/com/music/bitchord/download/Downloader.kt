@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.io.OutputStream
+import java.io.IOException
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -205,6 +206,75 @@ object Downloader {
     }
 
     /**
+     * Fetches a request-scoped authenticated stream and resumes after a broken
+     * connection when the server honours byte ranges. [url] is invoked again
+     * for every attempt so salts/tokens never need to be stored or reused.
+     */
+    suspend fun fetchResumable(
+        url: () -> String,
+        headers: Map<String, String>,
+        sink: OutputStream,
+        onProgress: (written: Long, total: Long) -> Unit,
+        awaitReady: suspend () -> Unit = {},
+    ): Long = withContext(Dispatchers.IO) {
+        var written = 0L
+        var total: Long? = null
+        var failures = 0
+        val buffer = ByteArray(BUFFER_BYTES)
+
+        while (total == null || written < total!!) {
+            awaitReady()
+            coroutineContext.ensureActive()
+            val request = Request.Builder().url(url())
+                .apply {
+                    headers.forEach { (name, value) -> header(name, value) }
+                    if (written > 0) header("Range", "bytes=$written-")
+                }
+                .build()
+            try {
+                Http.client.newCall(request).execute().use { response ->
+                    if (written > 0 && response.code != 206) {
+                        error("The server cannot resume this download")
+                    }
+                    if (response.code !in 200..299) error("Download failed (HTTP ${response.code})")
+                    val body = response.body ?: error("Download failed: empty response")
+                    val responseTotal = response.header("Content-Range")
+                        ?.substringAfter('/', "")?.toLongOrNull()
+                        ?: response.header("Content-Length")?.toLongOrNull()?.let { it + written }
+                    if (total != null && responseTotal != null && total != responseTotal) {
+                        error("The stream changed while the download was resuming")
+                    }
+                    total = total ?: responseTotal
+                    if (total == null) error("Download failed: server did not provide a file length")
+                    body.byteStream().use { source ->
+                        while (true) {
+                            awaitReady()
+                            coroutineContext.ensureActive()
+                            val read = source.read(buffer)
+                            if (read == -1) break
+                            sink.write(buffer, 0, read)
+                            written += read
+                            total?.takeIf { it > 0 }?.let { onProgress(written, it) }
+                        }
+                    }
+                }
+                if (total == null || written >= total!!) break
+                throw IOException("Download ended before the advertised length")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failures++
+                if (failures >= MAX_DIRECT_ATTEMPTS) throw e
+                Log.w(TAG, "direct download interrupted at ${written}B; retrying")
+            }
+        }
+        awaitReady()
+        sink.flush()
+        if (written == 0L) error("Download failed: nothing was sent")
+        written
+    }
+
+    /**
      * Verify that a source URL is a file in the container it advertised before
      * it is allowed to become a download route.
      *
@@ -278,4 +348,5 @@ object Downloader {
     }
 
     private val REFUSAL_CODES = setOf(403, 404, 410)
+    private const val MAX_DIRECT_ATTEMPTS = 3
 }

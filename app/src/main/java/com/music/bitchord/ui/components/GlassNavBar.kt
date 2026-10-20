@@ -52,9 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.music.bitchord.R
-import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
-import com.music.bitchord.data.model.artworkAt
 import com.music.bitchord.ui.components.floatingtabbar.FloatingTabBar
 import com.music.bitchord.ui.components.floatingtabbar.FloatingTabBarDefaults
 import com.music.bitchord.ui.components.floatingtabbar.FloatingTabBarScrollConnection
@@ -353,7 +351,10 @@ private fun GlassNowPlaying(
                 ),
         ) {
             AsyncImage(
-                model = rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
+                // The inline/expanded glass bar is also a docking target for
+                // the full player; never seed that transition with a 256 px
+                // server thumbnail.
+                model = rememberDockedPlayerArtwork(song),
                 contentDescription = null,
                 modifier = Modifier
                     .size(artSize)

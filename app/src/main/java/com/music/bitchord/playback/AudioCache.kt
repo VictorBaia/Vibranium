@@ -21,6 +21,10 @@ import androidx.media3.datasource.cache.SimpleCache
 import java.io.IOException
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.navidrome.NavidromeIds
+import com.music.bitchord.data.navidrome.NavidromePlaybackContext
+import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.cache.CacheUsageEntry
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.sources.DeviceCodecs
 import com.music.bitchord.data.sources.SourceKind
@@ -222,6 +226,15 @@ object AudioCache {
             state.edit().putInt(KEY_MATCHING_SCHEMA, MATCHING_SCHEMA).apply()
             TrackLog.d(TAG, "invalidated ${stale.size} source cache entries after matcher upgrade")
         }
+        if (state.getInt(KEY_NAVIDROME_TRANSCODE_SCHEMA, 0) < NAVIDROME_TRANSCODE_SCHEMA) {
+            val stale = cache.keys.filter { key ->
+                key.startsWith("navidrome|") &&
+                    (key.contains("|aac_") || key.contains("|mp3_"))
+            }
+            stale.forEach { runCatching { cache.removeResource(it) } }
+            state.edit().putInt(KEY_NAVIDROME_TRANSCODE_SCHEMA, NAVIDROME_TRANSCODE_SCHEMA).apply()
+            TrackLog.d(TAG, "invalidated ${stale.size} legacy Navidrome transcodes")
+        }
         // Nothing is playing yet, so nothing an addon served is worth keeping —
         // see [dropForeignEntries].
         dropForeignEntries(keep = emptySet())
@@ -363,7 +376,11 @@ object AudioCache {
      * read-ahead builds the same URI, so both land on one cache entry.
      */
     private val keyFactory = CacheKeyFactory { spec ->
-        spec.uri.getQueryParameter("v")
+        spec.uri.takeIf { it.authority == "navidrome" }?.let { uri ->
+            val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
+            config?.let { NavidromePlaybackContext.cacheKey(uri, it) }
+        }
+            ?: spec.uri.getQueryParameter("v")
             // A YouTube id can name several different recordings on disk: the
             // Opus rendition YouTube serves, whatever a source ranked above it
             // hands over instead — see [SourceResolver.substituteForYouTube] —
@@ -437,13 +454,9 @@ object AudioCache {
      * Which kind of server a cache entry's bytes came from, as recorded by
      * [recordServed].
      *
-     * Only [YOUTUBE] and [JIOSAAVN] are kept on disk once a track stops
-     * playing — they are what the player reaches first, before any addon
-     * has answered, so they are the copies worth having instantly next time.
-     * Everything else — an addon's or a module's stream, a lossless upgrade
-     * from one of them — is [OTHER]: cached while it plays, so seeking and
-     * Automix's analysis work exactly as before, then dropped by
-     * [dropForeignEntries].
+     * Every origin is retained once playback has consumed it. The rendition
+     * key keeps unlike containers/qualities separate, so retaining an addon's
+     * FLAC, a Navidrome transcode or YouTube Opus cannot splice their bytes.
      *
      * The origin alone is not what the Cached songs folder shows. An entry is
      * listed only once the player has actually played the track from it
@@ -452,7 +465,7 @@ object AudioCache {
      * while the track plays from JioSaavn or an addon, and not for read-ahead
      * of a track the queue never reached.
      */
-    enum class Origin { YOUTUBE, JIOSAAVN, OTHER }
+    enum class Origin { YOUTUBE, JIOSAAVN, NAVIDROME, OTHER }
 
     /** One track in the Cached songs folder. */
     data class CachedSong(
@@ -604,6 +617,38 @@ object AudioCache {
         }
     }
 
+    /** Tags Navidrome cache bytes without receiving, parsing or persisting the authenticated URL. */
+    fun recordNavidromeServed(spec: DataSpec) {
+        if (!::cache.isInitialized || spec.uri.authority != "navidrome") return
+        val songId = NavidromeIds.songIdFromPlaybackUri(spec.uri.toString()) ?: return
+        val mediaId = NavidromeIds.song(songId)
+        val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config ?: return
+        val key = spec.key ?: NavidromePlaybackContext.cacheKey(spec.uri, config) ?: return
+        val song = notedSongs[mediaId]
+        runCatching {
+            val meta = cache.getContentMetadata(key)
+            if (
+                meta.get(META_ORIGIN, null as String?) == Origin.NAVIDROME.name &&
+                meta.get(META_MEDIA_ID, null as String?) == mediaId &&
+                meta.get(META_ACCOUNT, null as String?) == config.accountKey
+            ) return@runCatching
+            cache.applyContentMetadataMutations(
+                key,
+                ContentMetadataMutations().also { mutations ->
+                    mutations.set(META_ORIGIN, Origin.NAVIDROME.name)
+                    mutations.set(META_MEDIA_ID, mediaId)
+                    mutations.set(META_ACCOUNT, config.accountKey)
+                    mutations.set(META_QUALITY, NavidromePlaybackContext.qualityFor(spec.uri).name)
+                    mutations.set(META_PLAYBACK, "1")
+                    if (mediaId in playedIds) mutations.set(META_PLAYED, "1")
+                    describe(mutations, song, spec.uri)
+                },
+            )
+        }.onFailure {
+            TrackLog.d(TAG, "could not tag Navidrome cache entry", about = mediaId)
+        }
+    }
+
     /**
      * Whose file [servedUrl] is.
      *
@@ -654,6 +699,8 @@ object AudioCache {
      */
     suspend fun cachedSongs(): List<CachedSong> = withContext(Dispatchers.IO) {
         if (!::cache.isInitialized) return@withContext emptyList()
+        val currentNavidromeAccount =
+            (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config?.accountKey
         class Entry(val origin: Origin, val meta: ContentMetadata, val bytes: Long, val touched: Long)
         val byTrack = LinkedHashMap<String, MutableList<Entry>>()
         for (key in cache.keys) {
@@ -661,12 +708,24 @@ object AudioCache {
             val origin = meta.get(META_ORIGIN, null as String?)
                 ?.let { runCatching { Origin.valueOf(it) }.getOrNull() }
                 ?: continue
-            if (origin == Origin.OTHER) continue
+            if (
+                origin == Origin.NAVIDROME &&
+                meta.get(META_ACCOUNT, null as String?) != currentNavidromeAccount
+            ) continue
             if (meta.get(META_PLAYED, null as String?) == null) continue
             val mediaId = meta.get(META_MEDIA_ID, null as String?) ?: continue
             val spans = cache.getCachedSpans(key).filter { it.isCached && it.file?.exists() == true }
             val bytes = spans.sumOf { it.length }
             if (bytes <= 0L) continue
+            // Offline playback may only advertise a rendition whose complete
+            // byte range is present. A played track can still be partial when
+            // it was skipped or sought; exposing that row offline would play
+            // normally and then fail at the first missing span.
+            val contentLength = ContentMetadata.getContentLength(meta)
+            val completeAtEof = meta.get(META_COMPLETE, null as String?) != null
+            val completeByLength = contentLength > 0L &&
+                cache.getCachedLength(key, 0L, contentLength) >= contentLength
+            if (!completeAtEof && !completeByLength) continue
             val touched = spans.maxOf { it.lastTouchTimestamp }
             byTrack.getOrPut(mediaId) { mutableListOf() } += Entry(origin, meta, bytes, touched)
         }
@@ -700,17 +759,23 @@ object AudioCache {
         }.sortedByDescending { it.lastUsedMs }
     }
 
+    /** Every audio resource currently occupying the on-disk playback cache. */
+    suspend fun storageEntries(): List<CacheUsageEntry> = withContext(Dispatchers.IO) {
+        if (!::cache.isInitialized) return@withContext emptyList()
+        cache.keys.mapNotNull { key ->
+            val spans = cache.getCachedSpans(key).filter { it.isCached && it.file?.exists() == true }
+            val bytes = spans.sumOf { it.length }
+            if (bytes <= 0L) return@mapNotNull null
+            val metadata = runCatching { cache.getContentMetadata(key) }.getOrNull()
+            val label = metadata?.get(META_TITLE, null as String?)?.takeIf(String::isNotBlank) ?: key
+            CacheUsageEntry(label, bytes)
+        }.sortedByDescending { it.bytes }
+    }
+
     /**
-     * Drops every entry an addon or module filled ([Origin.OTHER]), and every
-     * copy Automix downloaded for analysis alone that playback never read,
-     * except the ones belonging to [keep] — the tracks around the playhead,
-     * whose bytes are still being read, seeked through and analysed.
-     *
-     * This is what "only the YouTube and JioSaavn audio that played is cached"
-     * means in practice: the bytes an addon serves pass through the cache so
-     * playback behaves the same as ever, and leave it once the track does.
-     * Analysis results are kept in their own store, so the analysis-only
-     * audio has done its job by then.
+     * Drops only copies downloaded exclusively for analysis and never consumed
+     * by playback. Every actual streamed rendition is retained regardless of
+     * provider or container and remains available for a later cache hit.
      */
     fun dropForeignEntries(keep: Set<String>) {
         if (!::cache.isInitialized) return
@@ -718,11 +783,10 @@ object AudioCache {
             var dropped = 0
             cache.keys.toList().forEach { key ->
                 val meta = runCatching { cache.getContentMetadata(key) }.getOrNull() ?: return@forEach
-                val foreign = meta.get(META_ORIGIN, null as String?) == Origin.OTHER.name
                 val analysisOnly = meta.get(META_ANALYSIS, null as String?) != null &&
                     meta.get(META_PLAYBACK, null as String?) == null &&
                     meta.get(META_PLAYED, null as String?) == null
-                if (!foreign && !analysisOnly) return@forEach
+                if (!analysisOnly) return@forEach
                 val mediaId = meta.get(META_MEDIA_ID, null as String?)
                 if (mediaId != null && mediaId in keep) return@forEach
                 runCatching { cache.removeResource(key) }
@@ -736,7 +800,7 @@ object AudioCache {
                     }
                     .onFailure { TrackLog.d(TAG, "unkept cache entry $key still in use: ${it.message}") }
             }
-            if (dropped > 0) TrackLog.d(TAG, "dropped $dropped addon / analysis-only cache entries")
+            if (dropped > 0) TrackLog.d(TAG, "dropped $dropped analysis-only cache entries")
         }
     }
 
@@ -748,6 +812,7 @@ object AudioCache {
         get() = when (this) {
             Origin.YOUTUBE -> SourceKind.YOUTUBE.label
             Origin.JIOSAAVN -> SourceKind.JIOSAAVN.label
+            Origin.NAVIDROME -> "Navidrome"
             Origin.OTHER -> "Addon"
         }
 
@@ -763,6 +828,8 @@ object AudioCache {
     private const val META_ALBUM = "bc_album"
     private const val META_DURATION = "bc_duration"
     private const val META_ART = "bc_art"
+    private const val META_ACCOUNT = "bc_account"
+    private const val META_QUALITY = "bc_quality"
 
     /** Set once a non-analysis request — the player or its read-ahead — has read this entry. */
     private const val META_PLAYBACK = "bc_playback"
@@ -772,11 +839,15 @@ object AudioCache {
 
     /** Set once the player has played the track from this entry. */
     private const val META_PLAYED = "bc_played"
+    /** Set only after EOF proves the cached bytes form one contiguous file. */
+    private const val META_COMPLETE = "bc_complete"
     private const val MAX_NOTED_SONGS = 256
 
     private const val CACHE_STATE_PREFS = "audio_cache_state"
     private const val KEY_MATCHING_SCHEMA = "matching_schema"
     private const val MATCHING_SCHEMA = 2
+    private const val KEY_NAVIDROME_TRANSCODE_SCHEMA = "navidrome_transcode_schema"
+    private const val NAVIDROME_TRANSCODE_SCHEMA = 5
     private const val ALT_SUFFIX = "#alt"
 
     /**
@@ -789,29 +860,106 @@ object AudioCache {
         val upstreamDs = upstream.createDataSource()
         object : DataSource {
             private var activeDs: DataSource = cacheDs
+            private val navidromeQuality = NavidromePlaybackQuality()
+            private var activeSpec: DataSpec? = null
+            private var eofSpec: DataSpec? = null
 
             override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {
                 cacheDs.addTransferListener(transferListener)
                 upstreamDs.addTransferListener(transferListener)
             }
 
-            override fun open(dataSpec: DataSpec): Long {
-                val scheme = dataSpec.uri.scheme
-                activeDs = if (scheme == "file" || scheme == "content") {
+            override fun open(requestSpec: DataSpec): Long {
+                val boundUri = navidromeQuality.bind(requestSpec.uri) { uri ->
+                    val key = keyFactory.buildCacheKey(requestSpec.buildUpon().setUri(uri).build())
+                    cache.getCachedSpans(key).isNotEmpty()
+                }
+                val boundSpec = requestSpec.buildUpon().setUri(boundUri).build()
+                val scheme = boundSpec.uri.scheme
+                val transcodedNavidrome = boundSpec.uri.authority == "navidrome" &&
+                    boundSpec.uri.getQueryParameter("qf") in setOf("aac", "mp3")
+                val transcodeSeek = transcodedNavidrome && NavidromeStreaming.isSeek(boundSpec.position)
+                val forceStreaming = scheme == "navidrome" &&
+                    (NavidromeStore.state.value as? NavidromeStore.State.Configured)
+                        ?.config?.forceStreaming == true
+                if (transcodedNavidrome && !forceStreaming && !transcodeSeek && boundSpec.position == 0L) {
+                    val key = keyFactory.buildCacheKey(boundSpec)
+                    val metadata = cache.getContentMetadata(key)
+                    val length = metadata.get(ContentMetadata.KEY_CONTENT_LENGTH, C.LENGTH_UNSET.toLong())
+                    val complete = length > 0L && cache.getCachedBytes(key, 0L, length) >= length
+                    if (!complete && cache.getCachedSpans(key).isNotEmpty()) {
+                        runCatching { cache.removeResource(key) }
+                    }
+                }
+                activeDs = if (
+                    scheme == "file" || scheme == "content" || forceStreaming || transcodeSeek
+                ) {
+                    // A seek opens a fresh FFmpeg response at a timeOffset. It
+                    // must never be written into an absolute byte hole belonging
+                    // to the response that began at zero.
                     upstreamDs
                 } else {
                     cacheDs
                 }
-                return activeDs.open(dataSpec)
+                // Main's transcode path trusts only the server Content-Length
+                // when deciding whether a generated file is reusable. Do not
+                // promote a length-less transcode merely because one response
+                // reached EOF.
+                activeSpec = boundSpec.takeIf { activeDs === cacheDs && !transcodedNavidrome }
+                eofSpec = null
+                return activeDs.open(boundSpec)
             }
 
-            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-                activeDs.read(buffer, offset, length)
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                val read = activeDs.read(buffer, offset, length)
+                if (read == C.RESULT_END_OF_INPUT) {
+                    // Final cache fragments are committed when the data source
+                    // closes, so defer verification until just after close.
+                    eofSpec = activeSpec
+                    activeSpec = null
+                }
+                return read
+            }
 
             override fun getUri(): Uri? = activeDs.uri
 
             override fun close() {
-                activeDs.close()
+                val completed = eofSpec
+                activeSpec = null
+                eofSpec = null
+                try {
+                    activeDs.close()
+                } finally {
+                    completed?.let(::markCompletedAtEof)
+                }
+            }
+        }
+    }
+
+    /**
+     * EOF is authoritative even when an HTTP/transcode response supplied no
+     * Content-Length. If the cache now contains one continuous range from byte
+     * zero to its furthest span, persist that length and mark the rendition
+     * complete. Subsequent playback can then be served entirely from disk.
+     */
+    private fun markCompletedAtEof(spec: DataSpec) {
+        if (!::cache.isInitialized || spec.position != 0L) return
+        val key = keyFactory.buildCacheKey(spec)
+        scope.launch {
+            runCatching {
+                val spans = cache.getCachedSpans(key).filter { it.isCached && it.length > 0L }
+                val end = spans.maxOfOrNull { it.position + it.length } ?: return@runCatching
+                if (end <= 0L || cache.getCachedBytes(key, 0L, end) < end) return@runCatching
+                val metadata = cache.getContentMetadata(key)
+                val mutations = ContentMetadataMutations().set(META_COMPLETE, "1")
+                if (ContentMetadata.getContentLength(metadata) <= 0L) {
+                    ContentMetadataMutations.setContentLength(mutations, end)
+                }
+                cache.applyContentMetadataMutations(key, mutations)
+                _contentsChanged.value++
+                TrackLog.d(TAG, "audio cache completed $key ($end bytes)", about = mediaIdIn(spec.uri))
+            }.onFailure {
+                TrackLog.d(TAG, "could not finalize audio cache entry $key: ${it.message}", about = mediaIdIn(spec.uri))
             }
         }
     }
@@ -885,6 +1033,15 @@ object AudioCache {
      */
     fun prefetchQueue(upcoming: List<Upcoming>) {
         val mediaIds = upcoming.map { it.mediaId }
+        // Navidrome playback still fills this cache, but speculative read-ahead
+        // stays off until its server advertises a reliable byte length/range contract.
+        // Most importantly, an `nd:` id must never fall through to StreamResolver/YouTube.
+        if (mediaIds.firstOrNull()?.let(NavidromeIds::parse)?.entity ==
+            com.music.bitchord.data.navidrome.NavidromeEntity.SONG
+        ) {
+            cancel()
+            return
+        }
         if (mediaIds == pendingQueue) return
         android.util.Log.d("BCFetchDebug", "prefetchQueue: head ${pendingQueue.firstOrNull()} -> ${mediaIds.firstOrNull()}")
         pendingQueue = mediaIds

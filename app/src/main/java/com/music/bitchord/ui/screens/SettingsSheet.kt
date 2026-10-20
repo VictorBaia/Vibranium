@@ -142,6 +142,7 @@ import com.music.bitchord.data.settings.OutputPcmMode
 import com.music.bitchord.playback.AudioOutputStatus
 import com.music.bitchord.data.settings.AutomixPerformanceMode
 import com.music.bitchord.R
+import com.music.bitchord.BuildConfig
 import com.music.bitchord.data.sources.DeviceCodecs
 import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.DownloadQuality
@@ -169,6 +170,7 @@ fun SettingsScreen(
     account: Account?,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onNavidrome: () -> Unit,
     onAccountScrobbling: () -> Unit,
     onEqualizer: () -> Unit,
     onOpenReplay: () -> Unit,
@@ -389,34 +391,49 @@ fun SettingsScreen(
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp),
         )
 
-        SearchableSettingsGroup(search) {
-            val accountTitle = stringResource(R.string.account_integrations)
-            // What the row opens is the scrobbling screen, so the services it
-            // signs into are worth typing at this field even though none of
-            // them is named on the row itself.
-            row(accountTitle, "scrobbling", "last.fm", "listenbrainz") {
-                SettingsRow(
-                    icon = Icons.Rounded.Person,
-                    title = accountTitle,
-                    subtitle = account?.email?.takeIf { it.isNotBlank() }
-                        ?: stringResource(if (signedIn) R.string.signed_in else R.string.not_signed_in),
-                    onClick = onAccountScrobbling,
-                )
+        if (BuildConfig.NAVIDROME_MODE) {
+            SearchableSettingsGroup(search, header = stringResource(R.string.navidrome), topSpacing = 0.dp) {
+                val navidromeTitle = stringResource(R.string.navidrome)
+                val navidromeSubtitle = stringResource(R.string.navidrome_settings_subtitle)
+                row(navidromeTitle, navidromeSubtitle) {
+                    SettingsRow(
+                        icon = Icons.Rounded.Dns,
+                        title = navidromeTitle,
+                        subtitle = navidromeSubtitle,
+                        onClick = onNavidrome,
+                    )
+                }
             }
-            // Sits with the account rather than with Playback: a party is up to
-            // five signed-in people, and being signed in is the whole of what
-            // the row needs before it will do anything.
-            val listenTogetherTitle = stringResource(R.string.listen_together)
-            row(listenTogetherTitle, "jam", "party", "sync", "friends") {
-                SettingsRow(
-                    icon = Icons.Rounded.Groups,
-                    title = listenTogetherTitle,
-                    subtitle = party.code?.let {
-                        stringResource(R.string.listen_together_in_party, it)
-                    } ?: stringResource(R.string.listen_together_subtitle),
-                    badge = party.members.size.takeIf { party.inParty && it > 1 }?.toString(),
-                    onClick = onListenTogether,
-                )
+        } else {
+            SearchableSettingsGroup(search) {
+                val accountTitle = stringResource(R.string.account_integrations)
+                // What the row opens is the scrobbling screen, so the services it
+                // signs into are worth typing at this field even though none of
+                // them is named on the row itself.
+                row(accountTitle, "scrobbling", "last.fm", "listenbrainz") {
+                    SettingsRow(
+                        icon = Icons.Rounded.Person,
+                        title = accountTitle,
+                        subtitle = account?.email?.takeIf { it.isNotBlank() }
+                            ?: stringResource(if (signedIn) R.string.signed_in else R.string.not_signed_in),
+                        onClick = onAccountScrobbling,
+                    )
+                }
+                // Sits with the account rather than with Playback: a party is up to
+                // five signed-in people, and being signed in is the whole of what
+                // the row needs before it will do anything.
+                val listenTogetherTitle = stringResource(R.string.listen_together)
+                row(listenTogetherTitle, "jam", "party", "sync", "friends") {
+                    SettingsRow(
+                        icon = Icons.Rounded.Groups,
+                        title = listenTogetherTitle,
+                        subtitle = party.code?.let {
+                            stringResource(R.string.listen_together_in_party, it)
+                        } ?: stringResource(R.string.listen_together_subtitle),
+                        badge = party.members.size.takeIf { party.inParty && it > 1 }?.toString(),
+                        onClick = onListenTogether,
+                    )
+                }
             }
         }
 
@@ -443,7 +460,7 @@ fun SettingsScreen(
                     icon = Icons.Rounded.Wifi,
                     title = onWifiTitle,
                     badge = stringResource(R.string.in_use).takeIf { metered == false },
-                    value = wifiQuality.localizedLabel(),
+                    value = wifiQuality.audioQualityLabel(),
                     onClick = { picking = QualityTarget.WIFI },
                 )
             }
@@ -453,7 +470,7 @@ fun SettingsScreen(
                     icon = Icons.Rounded.SignalCellularAlt,
                     title = onMobileDataTitle,
                     badge = stringResource(R.string.in_use).takeIf { metered == true },
-                    value = cellularQuality.localizedLabel(),
+                    value = cellularQuality.audioQualityLabel(),
                     onClick = { picking = QualityTarget.CELLULAR },
                 )
             }
@@ -1704,7 +1721,7 @@ private fun Context.countOfMonths(months: Int): String = if (months == 0) {
 }
 
 /** Which ceiling the open picker is editing. */
-private enum class QualityTarget(val icon: ImageVector) {
+internal enum class QualityTarget(val icon: ImageVector) {
     WIFI(Icons.Rounded.Wifi),
     CELLULAR(Icons.Rounded.SignalCellularAlt),
 }
@@ -1715,7 +1732,7 @@ private fun QualityTarget.localizedTitle(): String = stringResource(
 )
 
 @Composable
-private fun AudioQuality.localizedLabel(): String = stringResource(
+internal fun AudioQuality.audioQualityLabel(): String = stringResource(
     when (this) {
         AudioQuality.LOW -> R.string.low
         AudioQuality.MEDIUM -> R.string.medium
@@ -1725,7 +1742,7 @@ private fun AudioQuality.localizedLabel(): String = stringResource(
 )
 
 @Composable
-private fun DownloadQuality.localizedLabel(): String = stringResource(
+internal fun DownloadQuality.localizedLabel(): String = stringResource(
     when (this) {
         DownloadQuality.STANDARD -> R.string.standard
         DownloadQuality.HIGH -> R.string.high
@@ -1778,7 +1795,7 @@ private const val CACHE_WARNING_MB = 2048
 private const val CACHE_UNLIMITED_STOP_MB = 10 * 1024 + 512
 
 /** "512 MB", "2 GB", "2.5 GB" — whichever reads more naturally at that size. */
-private fun formatCacheSize(mb: Int): String {
+internal fun formatCacheSize(mb: Int): String {
     if (mb < 1024) return "$mb MB"
     val gb = mb / 1024f
     return if (gb == gb.toInt().toFloat()) "${gb.toInt()} GB" else "%.1f GB".format(Locale.ROOT, gb)
@@ -1870,7 +1887,7 @@ internal fun AccountCard(
 
 /** The quality options for one connection, with what each costs in data. */
 @Composable
-private fun QualitySheet(
+internal fun QualitySheet(
     target: QualityTarget,
     selected: AudioQuality,
     onSelect: (AudioQuality) -> Unit,
@@ -1921,7 +1938,7 @@ private fun QualitySheet(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = quality.localizedLabel(),
+                        text = quality.audioQualityLabel(),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
@@ -2032,7 +2049,7 @@ private fun AutomixPerformanceSheet(
  * the numbers beside the options are in different units on purpose.
  */
 @Composable
-private fun DownloadQualitySheet(
+internal fun DownloadQualitySheet(
     selected: DownloadQuality,
     onSelect: (DownloadQuality) -> Unit,
 ) {

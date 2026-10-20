@@ -53,9 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
-import com.music.bitchord.data.model.artworkAt
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.sharedui.resources.Res as SharedRes
 import com.music.bitchord.sharedui.resources.ic_player_next
@@ -410,7 +408,10 @@ fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
-                model = rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
+                // This is one end of the seamless dock animation. It must use
+                // the same original source/cache identity as the expanded
+                // sleeve, even though it is rendered at only 40 dp.
+                model = rememberDockedPlayerArtwork(song),
                 contentDescription = null,
                 modifier = Modifier
                     .size(40.dp)

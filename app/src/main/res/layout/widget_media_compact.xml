@@ -27,10 +27,10 @@
     android:background="@drawable/widget_preview_art">
 
     <!--
-      fitXY, not centerCrop: the bitmap is composited at the widget's exact pixel
+      fitXY, not centerCrop: the bitmap is composited at the widget’s exact pixel
       size with the cover already centre-cropped into it, so this is a 1:1 blit.
       Asking for centerCrop here would crop a second time, and the blurred band —
-      which is pinned to the bitmap's bottom edge — would be the first thing to
+      which is pinned to the bitmap’s bottom edge — would be the first thing to
       be cropped off.
     -->
     <ImageView
@@ -52,9 +52,9 @@
         android:paddingBottom="4dp">
 
         <!--
-          Centred, and padded in past the band's own inset: at this width a title
+          Centred, and padded in past the band’s own inset: at this width a title
           runs to the ellipsis more often than not, and one that ended flush with
-          the widget's edge would read as clipped rather than as shortened.
+          the widget’s edge would read as clipped rather than as shortened.
         -->
         <TextView
             android:id="@+id/widget_title"

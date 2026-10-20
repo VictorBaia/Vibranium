@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">Thêm vào hàng đợi</string>
+    <string name="top_result">Kết quả hàng đầu</string>
+    <string name="artist">nghệ sĩ</string>
+    <string name="album">Album</string>
+    <string name="explore_under_construction">Đang xây dựng, vui lòng quay lại sau.</string>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">เพิ่มเข้าคิว</string>
+    <string name="top_result">ผลลัพธ์อันดับต้นๆ</string>
+    <string name="artist">ศิลปิน</string>
+    <string name="album">อัลบั้ม</string>
+    <string name="explore_under_construction">อยู่ระหว่างการก่อสร้าง โปรดกลับมาใหม่ภายหลัง</string>
+</resources>

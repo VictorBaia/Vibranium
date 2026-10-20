@@ -5,7 +5,7 @@
 
    The encrypted stores are excluded because their keysets are wrapped by an
    Android Keystore key that never leaves the device: restored anywhere, they
-   can't be decrypted (see EncryptedPrefs). Their plain fallbacks are excluded
+   can’t be decrypted (see EncryptedPrefs). Their plain fallbacks are excluded
    because they hold the same credentials in cleartext.
 -->
 <full-backup-content>
@@ -13,4 +13,5 @@
     <exclude domain="sharedpref" path="bitchord_auth_plain.xml" />
     <exclude domain="sharedpref" path="bitchord_sources.xml" />
     <exclude domain="sharedpref" path="bitchord_sources_plain.xml" />
+    <exclude domain="sharedpref" path="bitchord_navidrome.xml" />
 </full-backup-content>

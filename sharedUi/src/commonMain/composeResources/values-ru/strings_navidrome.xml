@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">Добавить в очередь</string>
+    <string name="top_result">Лучший результат</string>
+    <string name="artist">Художник</string>
+    <string name="album">Альбом</string>
+    <string name="explore_under_construction">В разработке, зайдите позже.</string>
+</resources>

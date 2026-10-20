@@ -2,10 +2,10 @@
 <resources>
     <!--
       The radius the launcher itself rounds a widget to. Overridden on API 31+
-      with the platform's own value (values-v31), so the corners baked into the
-      artwork bitmap land exactly where the host's clip does instead of leaving
+      with the platform’s own value (values-v31), so the corners baked into the
+      artwork bitmap land exactly where the host’s clip does instead of leaving
       a sliver of square image outside a rounder mask. 16dp is the pre-31
-      stand-in, where hosts don't clip at all and the baked corners are the only
+      stand-in, where hosts don’t clip at all and the baked corners are the only
       ones there are.
     -->
     <dimen name="widget_corner_radius">16dp</dimen>
@@ -24,7 +24,7 @@
     <dimen name="widget_band_compact">66dp</dimen>
     <dimen name="widget_band_wide">60dp</dimen>
 
-    <!-- Inset of the transport from the widget's edges. -->
+    <!-- Inset of the transport from the widget’s edges. -->
     <dimen name="widget_band_padding">8dp</dimen>
 
     <!-- Touch target and glyph size for one transport button. -->

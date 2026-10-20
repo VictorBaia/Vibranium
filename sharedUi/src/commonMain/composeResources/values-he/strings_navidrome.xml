@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">הוסף לתור</string>
+    <string name="top_result">תוצאה עליונה</string>
+    <string name="artist">אמן</string>
+    <string name="album">אלבום</string>
+    <string name="explore_under_construction">בבנייה, תחזור מאוחר יותר.</string>
+</resources>

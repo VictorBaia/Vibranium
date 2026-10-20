@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">कतार में जोड़ें</string>
+    <string name="top_result">शीर्ष परिणाम</string>
+    <string name="artist">कलाकार</string>
+    <string name="album">एलबम</string>
+    <string name="explore_under_construction">निर्माणाधीन, बाद में वापस आना।</string>
+</resources>

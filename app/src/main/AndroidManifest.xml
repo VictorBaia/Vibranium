@@ -61,6 +61,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BitChord"
         tools:targetApi="34">
+        <provider
+            android:name=".data.navidrome.NavidromeArtworkProvider"
+            android:authorities="${applicationId}.navidrome-artwork"
+            android:exported="false" />
 
         <!--
           One UI 7+ only routes an app's ongoing notification to Live

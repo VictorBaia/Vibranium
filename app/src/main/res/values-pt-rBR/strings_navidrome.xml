@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_source_youtube">YouTube</string>
+    <string name="navidrome_singles">Solteiros</string>
+    <string name="navidrome_eps">EPs</string>
+    <string name="navidrome_related_artists">Artistas relacionados</string>
+    <string name="navidrome_more_from_artist">Mais de %1$s</string>
+    <string name="navidrome_related_albums">Álbuns relacionados</string>
+    <string name="streaming">Transmissão</string>
+    <string name="force_music_streaming">Forçar streaming de música</string>
+    <string name="force_music_streaming_description">Transmita música, ignorando arquivos armazenados em cache ou baixados.</string>
+    <string name="image_cache_limit">Limite de cache de imagens</string>
+    <string name="image_cache_limit_subtitle">Mantém o álbum, o artista e a arte animada disponíveis off-line.</string>
+    <string name="video_cache_limit">Limite de cache de vídeo</string>
+    <string name="video_cache_limit_subtitle">Mantém a capa animada do álbum e os vídeos dos artistas disponíveis off-line.</string>
+    <string name="cached_audio_files">Arquivos de áudio armazenados em cache</string>
+    <string name="cached_video_files">Arquivos de vídeo em cache</string>
+    <string name="cached_image_files">Arquivos de imagem armazenados em cache</string>
+    <string name="cached_files_subtitle">Veja o armazenamento usado por cada item em cache.</string>
+    <string name="no_cached_files">Nenhum arquivo em cache.</string>
+    <string name="navidrome_profile_photo">Foto do perfil</string>
+    <string name="navidrome_profile_photo_unset">Nenhuma foto selecionada</string>
+    <string name="navidrome_profile_photo_set">Foto selecionada</string>
+    <string name="navidrome_force_sync">Forçar sincronização completa</string>
+    <string name="navidrome_force_sync_subtitle">Atualize a biblioteca do Navidrome agora.</string>
+    <string name="adjust_profile_photo">Ajustar foto do perfil</string>
+    <string name="profile_photo_crop_hint">Escolha esta imagem como sua foto de perfil do Navidrome.</string>
+    <string name="pipeline_pcm_data_rate">Taxa de dados PCM</string>
+    <string name="lyrics_provider">Provedor de letras</string>
+    <string name="app_default">Padrão do aplicativo</string>
+</resources>

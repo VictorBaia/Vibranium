@@ -22,6 +22,11 @@ enum class LyricsSource(
      */
     val hidden: Boolean = false,
 ) {
+    NAVIDROME(
+        label = "Navidrome",
+        detail = "Letras sincronizadas do servidor Navidrome",
+        wordSynced = true,
+    ),
     // Declaration order is the default priority — [AppSettings.lyricsSourceOrder]
     // and [AppSettings.lyricsSources] both fall back to [LyricsSource.entries]
     // verbatim, so this list *is* the out-of-the-box experience. Stored by

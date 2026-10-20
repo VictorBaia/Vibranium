@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The 4×1 widget's body: a dark translucent capsule over the wallpaper. A
-  RemoteViews can't blur what is behind it, so it is tinted instead — dark
+  The 4×1 widget’s body: a dark translucent capsule over the wallpaper. A
+  RemoteViews can’t blur what is behind it, so it is tinted instead — dark
   enough that white text holds on a light wallpaper, light enough that the
   wallpaper still shows through. The radius is simply larger than the pill is
   ever tall, which clamps to a full capsule at any height.

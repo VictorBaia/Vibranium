@@ -105,7 +105,7 @@
     <string name="pause">Pausar</string>
     <string name="play">Tocar</string>
     <string name="played_by">Played by %1$s</string>
-    <string name="playing_from">Playing from %1$s</string>
+    <string name="playing_from">Reproduzindo de %1$s</string>
     <string name="playing_radio">Tocando rádio %1$s</string>
     <string name="queue">Fila</string>
     <string name="remove_from_liked">Remover de Músicas Curtidas</string>
@@ -130,12 +130,13 @@
     <string name="usb_audio">USB audio</string>
     <string name="hdmi_output">HDMI</string>
     <string name="personal_phone">%1$s’s Phone</string>
-    <string name="this_phone">This phone</string>
+    <string name="this_phone">Este telefone</string>
     <string name="albums">Álbuns</string>
     <string name="artists">Artistas</string>
     <string name="card_plays_format">%1$s reproduções</string>
     <string name="card_songs_format">%1$s músicas</string>
     <string name="card_views_format">%1$s visualizações</string>
+    <string name="add_to_queue">Adicionar à fila</string>
     <string name="clear_search">Limpar pesquisa</string>
     <string name="downloaded">Baixado</string>
     <string name="explore">Explorar</string>

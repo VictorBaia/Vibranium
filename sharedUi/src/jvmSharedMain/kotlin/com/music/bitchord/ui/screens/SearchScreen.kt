@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -56,6 +57,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +83,7 @@ import com.music.bitchord.ui.components.PlayingAccent
 import com.music.bitchord.ui.components.ROW_DIVIDER_INSET
 import com.music.bitchord.ui.components.SearchField
 import com.music.bitchord.ui.components.SongRow
+import com.music.bitchord.ui.components.ExplicitSongTitle
 import com.music.bitchord.ui.components.SearchPlayingBars
 import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.ui.components.songListSkeleton
@@ -96,6 +99,7 @@ fun SearchScreen(
     currentSong: Song?,
     isPlaying: Boolean,
     onFilterChange: (SearchFilter) -> Unit,
+    availableFilters: List<SearchFilter> = SearchFilter.entries,
     results: UiState<List<SearchResult>>?,
     loadingMore: Boolean,
     onLoadMore: () -> Unit,
@@ -108,6 +112,7 @@ fun SearchScreen(
     onSongSwipe: (Song) -> Unit,
     onTopResultPlay: (Song) -> Unit,
     onTopResultPlaylist: (Song) -> Unit,
+    onTopResultQueue: (Song) -> Unit = {},
     onBrowseClick: (BrowseItem) -> Unit,
     /**
      * Holding an album or playlist hit rather than tapping it — the same menu
@@ -118,6 +123,7 @@ fun SearchScreen(
     history: List<SearchHistoryEntity>,
     suggestions: List<String>,
     typeaheadResults: List<SearchResult>,
+    unavailableSongIds: Set<String> = emptySet(),
     onSubmit: () -> Unit,
     onSuggestionClick: (String) -> Unit,
     onHistoryClick: (SearchHistoryEntity) -> Unit,
@@ -228,9 +234,21 @@ fun SearchScreen(
             // that finds nothing would take away the control needed to leave it.
             // They are YouTube's categories, so the Library source has none.
             if (results != null && !suggesting && !searchingLibrary) {
-                SearchFilterTabs(filter = filter, onFilterChange = onFilterChange)
+                SearchFilterTabs(
+                    filter = filter,
+                    availableFilters = availableFilters,
+                    onFilterChange = onFilterChange,
+                )
             }
         }
+
+        val sectionTitles = SearchSectionTitles(
+            songs = stringResource(Res.string.songs),
+            artists = stringResource(Res.string.artists),
+            albums = stringResource(Res.string.albums),
+            playlists = stringResource(Res.string.playlists),
+            more = stringResource(Res.string.more),
+        )
 
         LazyColumn(
             state = listState,
@@ -293,18 +311,45 @@ fun SearchScreen(
                             is SearchResult.Browse -> null
                             else -> null
                         } }
-                    val topResult = results.data.filterIsInstance<SearchResult.TopTrack>().firstOrNull()
+                        .filterNot { it.videoId in unavailableSongIds }
+                    val topResult = results.data.topResultFor(query)
                     if (filter == SearchFilter.ALL && topResult != null) {
-                        item(key = "search:top-result:${topResult.song.videoId}") {
-                            TopResultCard(
-                                song = topResult.song,
-                                onPlay = { onTopResultPlay(topResult.song) },
-                                onPlaylist = { onTopResultPlaylist(topResult.song) },
-                                onLongPress = { onSongLongPress(topResult.song) },
-                            )
+                        item(key = "search:top-result:${topResult.key()}") {
+                            when (topResult) {
+                                is SearchResult.TopTrack -> TopResultCard(
+                                    song = topResult.song,
+                                    enabled = topResult.song.videoId !in unavailableSongIds,
+                                    onPlay = { onTopResultPlay(topResult.song) },
+                                    onPlaylist = { onTopResultPlaylist(topResult.song) },
+                                    onQueue = { onTopResultQueue(topResult.song) },
+                                    onLongPress = { onSongLongPress(topResult.song) },
+                                )
+                                is SearchResult.Track -> TopResultCard(
+                                    song = topResult.song,
+                                    enabled = topResult.song.videoId !in unavailableSongIds,
+                                    onPlay = { onTopResultPlay(topResult.song) },
+                                    onPlaylist = { onTopResultPlaylist(topResult.song) },
+                                    onQueue = { onTopResultQueue(topResult.song) },
+                                    onLongPress = { onSongLongPress(topResult.song) },
+                                )
+                                is SearchResult.Browse -> TopBrowseResultCard(
+                                    item = topResult.item,
+                                    onOpen = { onBrowseClick(topResult.item) },
+                                    onLongPress = onBrowseLongPress?.let { callback -> { callback(topResult.item) } },
+                                )
+                            }
                         }
                     }
-                    searchSections(results.data, filter).forEach { section ->
+                    val sectionRows = if (filter == SearchFilter.ALL) {
+                        results.data.filterNot { it == topResult }
+                    } else {
+                        results.data
+                    }
+                    searchSections(
+                        rows = sectionRows,
+                        filter = filter,
+                        titles = sectionTitles,
+                    ).forEach { section ->
                         section.title?.let { title ->
                             item(key = "search-section:$title") {
                                 Text(
@@ -334,11 +379,20 @@ fun SearchScreen(
                                 is SearchResult.TopTrack -> Unit
                                 is SearchResult.Track -> SongRow(
                                     song = row.song,
+                                    modifier = Modifier.alpha(
+                                        if (row.song.videoId in unavailableSongIds) 0.38f else 1f,
+                                    ),
                                     onClick = {
-                                        onSongClick(tracks, tracks.indexOf(row.song).coerceAtLeast(0))
+                                        if (row.song.videoId !in unavailableSongIds) {
+                                            onSongClick(tracks, tracks.indexOf(row.song).coerceAtLeast(0))
+                                        }
                                     },
-                                    onLongPress = { onSongLongPress(row.song) },
-                                    onSwipeToQueue = { onSongSwipe(row.song) },
+                                    onLongPress = {
+                                        if (row.song.videoId !in unavailableSongIds) onSongLongPress(row.song)
+                                    },
+                                    onSwipeToQueue = {
+                                        if (row.song.videoId !in unavailableSongIds) onSongSwipe(row.song)
+                                    },
                                     isCurrent = row.song.isSameTrackAs(currentSong),
                                     isPlaying = isPlaying && row.song.isSameTrackAs(currentSong),
                                     searchPlayingStyle = true,
@@ -374,15 +428,58 @@ fun SearchScreen(
 
 private data class SearchSection(val title: String?, val rows: List<SearchResult>)
 
+private data class SearchSectionTitles(
+    val songs: String,
+    val artists: String,
+    val albums: String,
+    val playlists: String,
+    val more: String,
+)
+
+/**
+ * The Navidrome API returns tracks first, then artists and albums. A useful
+ * promoted result should instead favour the entity whose name best matches the
+ * query: an artist/album page for that name, or a playable track otherwise.
+ */
+private fun List<SearchResult>.topResultFor(query: String): SearchResult? {
+    firstOrNull { it is SearchResult.TopTrack }?.let { return it }
+    val needle = query.trim().lowercase(Locale.ROOT)
+    if (needle.isEmpty()) return null
+    fun SearchResult.title(): String = when (this) {
+        is SearchResult.TopTrack -> song.title
+        is SearchResult.Track -> song.title
+        is SearchResult.Browse -> item.title
+    }
+    fun SearchResult.matchesExactly() = title().trim().lowercase(Locale.ROOT) == needle
+    fun SearchResult.matchesText() = title().trim().lowercase(Locale.ROOT).contains(needle)
+    val browse = filterIsInstance<SearchResult.Browse>()
+        .filter { it.item.type == BrowseType.ARTIST || it.item.type == BrowseType.ALBUM }
+    return browse.firstOrNull { it.matchesExactly() }
+        ?: filterIsInstance<SearchResult.Track>().firstOrNull { it.matchesExactly() }
+        ?: browse.firstOrNull { it.matchesText() }
+        ?: filterIsInstance<SearchResult.Track>().firstOrNull { it.matchesText() }
+        ?: firstOrNull()
+}
+
+private fun SearchResult.key(): String = when (this) {
+    is SearchResult.TopTrack -> "track:${song.videoId}"
+    is SearchResult.Track -> "track:${song.videoId}"
+    is SearchResult.Browse -> "browse:${item.browseId}"
+}
+
 /** The unfiltered page is useful only when its mixed result types are readable at a glance. */
-private fun searchSections(rows: List<SearchResult>, filter: SearchFilter): List<SearchSection> {
+private fun searchSections(
+    rows: List<SearchResult>,
+    filter: SearchFilter,
+    titles: SearchSectionTitles,
+): List<SearchSection> {
     if (filter != SearchFilter.ALL) return listOf(SearchSection(null, rows))
     return listOf(
-        SearchSection("Songs", rows.filterIsInstance<SearchResult.Track>()),
-        SearchSection("Artists", rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.ARTIST }),
-        SearchSection("Albums", rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.ALBUM }),
-        SearchSection("Playlists", rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.PLAYLIST }),
-        SearchSection("More", rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.OTHER }),
+        SearchSection(titles.songs, rows.filterIsInstance<SearchResult.Track>()),
+        SearchSection(titles.artists, rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.ARTIST }),
+        SearchSection(titles.albums, rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.ALBUM }),
+        SearchSection(titles.playlists, rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.PLAYLIST }),
+        SearchSection(titles.more, rows.filterIsInstance<SearchResult.Browse>().filter { it.item.type == BrowseType.OTHER }),
     ).filter { it.rows.isNotEmpty() }
 }
 
@@ -440,19 +537,25 @@ private fun LazyListScope.librarySearchResults(
 @Composable
 private fun TopResultCard(
     song: Song,
+    enabled: Boolean = true,
     onPlay: () -> Unit,
     onPlaylist: () -> Unit,
+    onQueue: () -> Unit,
     onLongPress: () -> Unit,
 ) {
     Column(
         modifier = Modifier
+            .alpha(if (enabled) 1f else 0.38f)
             .fillMaxWidth()
             .padding(start = PAGE_GUTTER, end = PAGE_GUTTER, top = 18.dp, bottom = 8.dp)
-            .longPressMenuClickable(onClick = onPlay, onLongClick = onLongPress)
-            .contextClick(onLongPress),
+            .longPressMenuClickable(
+                onClick = { if (enabled) onPlay() },
+                onLongClick = { if (enabled) onLongPress() },
+            )
+            .contextClick { if (enabled) onLongPress() },
     ) {
         Text(
-            text = "Top result",
+            text = stringResource(Res.string.top_result),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -465,12 +568,11 @@ private fun TopResultCard(
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = song.title,
+                ExplicitSongTitle(
+                    song = song,
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -482,15 +584,19 @@ private fun TopResultCard(
                 )
             }
             RowMoreButton(
-                onClick = onLongPress,
+                onClick = { if (enabled) onLongPress() },
                 tint = MaterialTheme.colorScheme.onSurface,
                 iconSize = 24.dp,
             )
         }
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             OutlinedButton(
                 onClick = onPlay,
+                enabled = enabled,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             ) {
                 Icon(Icons.Rounded.PlayArrow, contentDescription = null)
@@ -499,11 +605,78 @@ private fun TopResultCard(
             }
             OutlinedButton(
                 onClick = onPlaylist,
+                enabled = enabled,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             ) {
                 Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(Res.string.playlist_action))
+            }
+            OutlinedButton(
+                onClick = onQueue,
+                enabled = enabled,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(Res.string.add_to_queue))
+            }
+        }
+    }
+}
+
+/** Promoted artist and album hits open their existing detail screen directly. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TopBrowseResultCard(
+    item: BrowseItem,
+    onOpen: () -> Unit,
+    onLongPress: (() -> Unit)?,
+) {
+    val artworkShape = if (item.type == BrowseType.ARTIST) CircleShape else RoundedCornerShape(10.dp)
+    val typeLabel = stringResource(
+        if (item.type == BrowseType.ARTIST) Res.string.artist else Res.string.album,
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = PAGE_GUTTER, end = PAGE_GUTTER, top = 18.dp, bottom = 8.dp)
+            .longPressMenuClickable(onClick = onOpen, onLongClick = onLongPress)
+            .contextClick(onLongPress),
+    ) {
+        Text(
+            text = stringResource(Res.string.top_result),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = item.thumbnailUrl?.artworkAt(ROW_ART_PX),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(artworkShape)
+                    .thumbnailBorder(artworkShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (item.type == BrowseType.ARTIST) typeLabel else item.subtitle.ifBlank { typeLabel },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -692,12 +865,10 @@ private fun TypeaheadSongRow(
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                text = song.title,
+            ExplicitSongTitle(
+                song = song,
                 style = MaterialTheme.typography.titleMedium,
                 color = if (isCurrent) PlayingAccent else MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
@@ -879,7 +1050,11 @@ private fun BrowseRow(item: BrowseItem, onClick: () -> Unit, onLongPress: (() ->
  * text, and the gutter padding sits inside the scroll so it scrolls with them.
  */
 @Composable
-private fun SearchFilterTabs(filter: SearchFilter, onFilterChange: (SearchFilter) -> Unit) {
+private fun SearchFilterTabs(
+    filter: SearchFilter,
+    availableFilters: List<SearchFilter>,
+    onFilterChange: (SearchFilter) -> Unit,
+) {
     val haptics = rememberHaptics()
     Row(
         modifier = Modifier
@@ -889,7 +1064,7 @@ private fun SearchFilterTabs(filter: SearchFilter, onFilterChange: (SearchFilter
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SearchFilter.entries.forEach { entry ->
+        availableFilters.forEach { entry ->
             val selected = entry == filter
             Box(
                 modifier = Modifier

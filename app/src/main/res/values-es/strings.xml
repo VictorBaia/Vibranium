@@ -961,7 +961,6 @@
     <string name="radio_started">Radio %1$s iniciada</string>
 
     <string name="convert_to_audio">Convertir a audio</string>
-    <string name="convert_to_video">Convertir a video</string>
 
     <string name="converting_to_audio">Convirtiendo a audio…</string>
 
@@ -991,7 +990,7 @@
 
     <string name="auto_recents">Recent</string>
 
-    <string name="auto_liked">Liked songs</string>
+    <string name="auto_liked">Canciones favoritas</string>
 
     <string name="auto_login_title">Sign in to YouTube on your phone</string>
 
@@ -1072,9 +1071,9 @@
 
     <string name="system_equalizer">System equalizer</string>
 
-    <string name="system_equalizer_subtitle">Your device\'s own panel</string>
+    <string name="system_equalizer_subtitle">Your device’s own panel</string>
 
-    <string name="system_equalizer_footer">Runs after BitChord\'s, on the whole audio session. Using both applies both.</string>
+    <string name="system_equalizer_footer">Runs after BitChord’s, on the whole audio session. Using both applies both.</string>
 
     <string name="eq_preset_flat">Flat</string>
 
@@ -1132,8 +1131,8 @@
     <string name="cast_device_connecting">Connecting…</string>
     <string name="cast_device_connected">Casting</string>
     <string name="cast_stop">Stop casting</string>
-    <string name="cast_track_unsupported">This track can\'t be cast</string>
-    <string name="cast_connect_failed">Couldn\'t connect to the receiver</string>
+    <string name="cast_track_unsupported">This track can’t be cast</string>
+    <string name="cast_connect_failed">Couldn’t connect to the receiver</string>
     <string name="audio_pipeline_subtitle">Ruta de la señal en vivo, del decodificador a la salida</string>
 
     <string name="pipeline_track_info">Track Info</string>

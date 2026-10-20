@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,6 +60,7 @@ import com.music.bitchord.ui.components.PullToRefresh
 import com.music.bitchord.ui.components.SHELF_CARD_WIDTH
 import com.music.bitchord.ui.components.libraryGrid
 import com.music.bitchord.ui.components.librarySkeleton
+import coil3.compose.AsyncImage
 
 /**
  * The signed-in library: the saved collections, as shelves of cards.
@@ -109,6 +111,8 @@ fun LibraryScreen(
      * app, since which of those exist is the platform's business.
      */
     links: List<LibraryLink>,
+    /** Collections rendered as text links above rather than as card shelves. */
+    hiddenShelfTitles: Set<String> = emptySet(),
     /**
      * The "On device" shelf under that list: the releases kept on this device
      * whole. Left off the page entirely while there are none.
@@ -200,7 +204,7 @@ fun LibraryScreen(
                             )
                         }
                     }
-                    shelves.forEach { shelf ->
+                    shelves.filterNot { it.title in hiddenShelfTitles }.forEach { shelf ->
                         item(key = "shelf:${shelf.title}") {
                             if (shelf.title == PLAYLISTS) {
                                 val pinnedFirst = shelf.pinnedFirst(pinnedPlaylists)
@@ -231,7 +235,12 @@ fun LibraryScreen(
 
 /** One of the Library's folder rows: the page [item] opens, behind [icon]. */
 /** [logo], when set, is drawn in place of [icon] — a service's own mark. */
-data class LibraryLink(val item: ShelfItem, val icon: ImageVector, val logo: DrawableResource? = null)
+data class LibraryLink(
+    val item: ShelfItem,
+    val icon: ImageVector,
+    val logo: DrawableResource? = null,
+    val customIcon: (@Composable () -> Unit)? = null,
+)
 
 /**
  * The folders as a plain list — icon, name, chevron, hairlines between — the
@@ -250,7 +259,18 @@ private fun LibraryLinkList(links: List<LibraryLink>, onClick: (ShelfItem) -> Un
                     .clickable { onClick(link.item) }
                     .padding(horizontal = PAGE_GUTTER),
             ) {
-                if (link.logo != null) {
+                if (link.customIcon != null) {
+                    link.customIcon.invoke()
+                } else if (link.item.thumbnailUrl != null) {
+                    AsyncImage(
+                        model = link.item.thumbnailUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(LINK_ICON_SIZE)
+                            .clip(MaterialTheme.shapes.small),
+                    )
+                } else if (link.logo != null) {
                     // A mark, not a glyph: white on dark, black on light, with
                     // its cut-outs left clear.
                     Icon(

@@ -3,11 +3,11 @@
   Play. Rounded rather than sharp, to sit alongside the Icons.Rounded glyphs the
   mini player and the full player use.
 
-  The rounding is a round-joined stroke of the fill's own colour laid over an
+  The rounding is a round-joined stroke of the fill’s own colour laid over an
   inset triangle, rather than arcs written by hand: the stroke extends half its
   width past the path and caps every corner with a radius of exactly that half,
   so insetting the triangle by the same amount lands the finished glyph back on
-  the bounds Material's own play_arrow occupies. Hand-authored arcs would give
+  the bounds Material’s own play_arrow occupies. Hand-authored arcs would give
   the same picture with three more chances to get a control point wrong.
 
   White, not tinted: this only ever draws over darkened album art, so there is

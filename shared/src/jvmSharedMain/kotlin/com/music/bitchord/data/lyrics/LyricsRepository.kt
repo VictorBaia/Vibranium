@@ -192,6 +192,11 @@ object LyricsRepository {
         get: suspend (String) -> String?,
     ): List<LyricLine>? {
         val found = when (source) {
+            // Navidrome is fetched by the Android catalogue layer, which owns
+            // the authenticated server session. Keeping this branch here makes
+            // the shared provider pipeline exhaustive without leaking Android
+            // or server credentials into the shared module.
+            LyricsSource.NAVIDROME -> null
             LyricsSource.LRC_RED -> LrcRed.lyrics(title, artist, durationMs, isrc, get)
             LyricsSource.BETTER_LYRICS -> BetterLyrics.lyrics(title, artist, durationMs, album)
             LyricsSource.BETTER_LYRICS_PORTATO -> BetterLyrics.portato(title, artist, durationMs, album)

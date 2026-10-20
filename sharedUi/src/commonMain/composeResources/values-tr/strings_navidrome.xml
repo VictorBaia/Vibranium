@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">Kuyruğa ekle</string>
+    <string name="top_result">En iyi sonuç</string>
+    <string name="artist">Sanatçı</string>
+    <string name="album">Albüm</string>
+    <string name="explore_under_construction">Yapım aşamasındadır, daha sonra tekrar gelin.</string>
+</resources>

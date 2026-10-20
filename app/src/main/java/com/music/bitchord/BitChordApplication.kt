@@ -26,6 +26,14 @@ import com.music.bitchord.playback.OriginalVersion
 import com.music.bitchord.data.innertube.Innertube
 import com.music.bitchord.data.innertube.AndroidStreamHooks
 import com.music.bitchord.data.listentogether.ListenTogether
+import com.music.bitchord.data.catalog.AppCatalogRouter
+import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.navidrome.NavidromeAlbumEnrichment
+import com.music.bitchord.data.navidrome.NavidromeArtistEnrichment
+import com.music.bitchord.data.navidrome.NavidromeTranscoding
+import com.music.bitchord.data.navidrome.NavidromeLyricsSettings
+import com.music.bitchord.data.navidrome.NavidromeLyricsCache
+import com.music.bitchord.data.navidrome.NavidromeArtworkFetcher
 import com.music.bitchord.data.scrobbling.LastFM
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.SearchHistory
@@ -75,13 +83,12 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // nothing that runs after startup can see any of them half open.
         val backgroundInit = thread(name = "startup-init") {
             SourceRegistry.init(this)
+            NavidromeStore.init(this)
+            NavidromeLyricsCache.init(this)
+            NavidromeArtistEnrichment.init(this)
+            NavidromeAlbumEnrichment.init(this)
+            NavidromeLyricsSettings.init(this)
             AndroidStreamHooks.initInnerTubeX(this)
-            // Its own directory: canvas clips are looping video, not audio, and
-            // belong in a cache AudioCache's own limit and eviction policy were
-            // never sized for. See CanvasCache's doc for why this one exists at
-            // all — it is the fix for canvas clips re-fetching the same few
-            // seconds of video from the network on every loop.
-            CanvasCache.init(this)
         }
         // Migration-safe: an old single cookie becomes the first encrypted
         // session, while newer installs restore the profile the listener chose.
@@ -105,6 +112,11 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             CoroutineScope(Dispatchers.IO).launch { Innertube.ensureSessionScope() }
         }
         AppSettings.init(this, authStore)
+        // Its own directory: canvas clips are looping video, not audio. This
+        // must open after AppSettings so its dynamic disk budget is restored
+        // before the cache accepts its first write.
+        CanvasCache.init(this)
+        NavidromeTranscoding.init(this)
         // Before anything resolves a track: an addon with `checkValidLossless`
         // is gated on this, and the gate reads "no" until it has looked.
         com.music.bitchord.playback.audio.LosslessOutput.init(this)
@@ -154,6 +166,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // The public "apps open right now" count; see Presence.
         com.music.bitchord.data.presence.AndroidPresence.install(this)
         backgroundInit.join()
+        AppCatalogRouter.init(BuildConfig.NAVIDROME_MODE, NavidromeStore.state)
     }
 
     /**
@@ -172,6 +185,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             // Coil's own transport never sees Http.client's interceptor, so
             // the header is attached per request instead. See WebDavCoilAuth.
             .components {
+                add(NavidromeArtworkFetcher.Factory())
                 add(WebDavCoilAuth())
                 // Covers filed on the SMB share; anything else falls
                 // through to Coil's own fetchers. See SmbCoverFetcher.
@@ -185,7 +199,10 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024 * 1024)
+                    // The user-selected image budget applies to every normal
+                    // HTTP/file image as well as the custom Navidrome and SMB
+                    // fetchers that share this disk cache.
+                    .maxSizeBytes(AppSettings.imageCacheLimitBytes.value)
                     .build()
             }
             // Covers arriving with a hard cut read as the list flickering as

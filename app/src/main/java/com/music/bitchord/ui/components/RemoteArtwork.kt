@@ -7,7 +7,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.size.Size
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.model.originalArtwork
 import com.music.bitchord.data.remote.RemoteArtworkStore
 
 /**
@@ -33,4 +37,31 @@ fun rememberRemoteArtworkUrl(song: Song?): String? {
         }
     }
     return resolved
+}
+
+/**
+ * The artwork model used by the compact player surfaces that participate in
+ * the mini-player -> full-player flight.
+ *
+ * Those surfaces are visually small, but their pixels become the first frame
+ * of a full-screen artwork transition. Requesting a 256 px server thumbnail
+ * here made that frame seed the caches before the full player could request
+ * the native cover. Keep one original source and one cache identity across
+ * both ends of the transition instead.
+ */
+@Composable
+fun rememberDockedPlayerArtwork(song: Song?): ImageRequest {
+    val context = LocalContext.current
+    val url = rememberRemoteArtworkUrl(song).originalArtwork()
+    return remember(context, url) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(Size.ORIGINAL)
+            .apply {
+                url?.let { diskCacheKey("artwork:original:$it") }
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
+            }
+            .build()
+    }
 }

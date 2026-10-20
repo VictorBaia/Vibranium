@@ -41,7 +41,8 @@ target_include_directories(bitchord_analysis PRIVATE
 target_compile_options(bitchord_analysis PRIVATE -O3 -fvisibility=hidden)
 
 find_library(log-lib log)
-target_link_libraries(bitchord_analysis ${log-lib})
+find_library(cxx-shared-lib c++_shared)
+target_link_libraries(bitchord_analysis ${log-lib} ${cxx-shared-lib})
 
 # 16KB page-size support (Android 15+ 16KB kernels, Play requirement): align
 # LOAD segments to 16KB. A superset of 4KB alignment, so 4KB devices are
@@ -54,8 +55,10 @@ target_link_options(bitchord_analysis PRIVATE "-Wl,-z,max-page-size=16384")
 # be rebuilt or swapped without touching the rest.
 add_library(bitchord_dsd SHARED dsd/dsd_decimator.cpp)
 target_compile_options(bitchord_dsd PRIVATE -O3 -fno-fast-math -ffp-contract=off -fvisibility=hidden)
+target_link_libraries(bitchord_dsd ${log-lib} ${cxx-shared-lib})
 target_link_options(bitchord_dsd PRIVATE "-Wl,-z,max-page-size=16384")
 
 add_library(bitchord_dst SHARED dsd/dst/decoder.c dsd/dst/jni.cpp)
 target_compile_options(bitchord_dst PRIVATE -O3 -fno-strict-aliasing -fvisibility=hidden)
+target_link_libraries(bitchord_dst ${log-lib} ${cxx-shared-lib})
 target_link_options(bitchord_dst PRIVATE "-Wl,-z,max-page-size=16384")

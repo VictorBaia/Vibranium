@@ -15,7 +15,12 @@ import kotlinx.serialization.json.Json
  */
 object LastPlayed {
 
-    class Snapshot(val songs: List<Song>, val index: Int, val positionMs: Long)
+    class Snapshot(
+        val songs: List<Song>,
+        val index: Int,
+        val positionMs: Long,
+        val accountKey: String?,
+    )
 
     private lateinit var prefs: SharedPreferences
     private val json = Json { ignoreUnknownKeys = true }
@@ -32,7 +37,7 @@ object LastPlayed {
     }
 
     /** Persist at most 25 previous entries, the current one, and 50 upcoming entries. */
-    fun saveQueue(songs: List<Song>, index: Int) {
+    fun saveQueue(songs: List<Song>, index: Int, accountKey: String? = null) {
         if (songs.isEmpty()) {
             clear()
             return
@@ -41,6 +46,7 @@ object LastPlayed {
         val bounds = window(songs.size, safeIndex)
         val stored = StoredQueue(
             tracks = songs.subList(bounds.first, bounds.last + 1).map { StoredTrack.from(it) },
+            accountKey = accountKey,
         )
         val encoded = runCatching {
             json.encodeToString(StoredQueue.serializer(), stored)
@@ -56,7 +62,12 @@ object LastPlayed {
      * Used at an explicit queue boundary, where restoring the queue from before
      * that boundary would be worse than the small cost of a synchronous write.
      */
-    fun saveQueueImmediately(songs: List<Song>, index: Int, positionMs: Long) {
+    fun saveQueueImmediately(
+        songs: List<Song>,
+        index: Int,
+        positionMs: Long,
+        accountKey: String? = null,
+    ) {
         if (songs.isEmpty()) {
             clearImmediately()
             return
@@ -65,6 +76,7 @@ object LastPlayed {
         val bounds = window(songs.size, safeIndex)
         val stored = StoredQueue(
             tracks = songs.subList(bounds.first, bounds.last + 1).map { StoredTrack.from(it) },
+            accountKey = accountKey,
         )
         val encoded = runCatching {
             json.encodeToString(StoredQueue.serializer(), stored)
@@ -105,6 +117,7 @@ object LastPlayed {
             songs = songs,
             index = index.coerceIn(songs.indices),
             positionMs = positionMs.coerceAtLeast(0L),
+            accountKey = stored.accountKey,
         )
     }
 
@@ -120,6 +133,8 @@ object LastPlayed {
     @Serializable
     private data class StoredQueue(
         val tracks: List<StoredTrack>,
+        /** Random non-secret Navidrome namespace; prevents restoring against another account. */
+        val accountKey: String? = null,
         /** Compatibility with queue snapshots written before scalar state was separated. */
         val index: Int? = null,
         /** Compatibility with queue snapshots written before scalar state was separated. */

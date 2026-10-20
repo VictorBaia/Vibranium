@@ -84,7 +84,7 @@ object DownloadStore {
      * else — no tags to group by — so leading with the artist is the only thing
      * that puts an album back together in the listing.
      */
-    fun fileNameFor(song: Song, extension: String): String {
+    fun fileNameFor(song: Song, extension: String, namespace: String? = null): String {
         val artist = sanitise(song.artist)
         val title = sanitise(song.title)
         val stem = when {
@@ -92,7 +92,8 @@ object DownloadStore {
             title.isEmpty() -> artist
             else -> "$artist - $title"
         }.ifEmpty { song.videoId }
-        return "${stem.take(MAX_STEM_CHARS).trimEnd()}.$extension"
+        val suffix = namespace?.takeIf(String::isNotBlank)?.let { " [${sanitise(it).take(12)}]" }.orEmpty()
+        return "${stem.take(MAX_STEM_CHARS - suffix.length).trimEnd()}$suffix.$extension"
     }
 
     /**

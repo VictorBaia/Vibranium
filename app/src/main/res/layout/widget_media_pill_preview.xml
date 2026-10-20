@@ -47,8 +47,8 @@
                 android:orientation="vertical">
 
                 <!--
-                  Inset by the heart's own inset inside its button (9dp of padding
-                  plus the glyph's side bearing), so the text starts exactly above
+                  Inset by the heart’s own inset inside its button (9dp of padding
+                  plus the glyph’s side bearing), so the text starts exactly above
                   the heart rather than to the left of it.
                 -->
                 <TextView

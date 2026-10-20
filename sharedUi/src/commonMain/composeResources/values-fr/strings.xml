@@ -10,7 +10,7 @@
     <string name="automix_not_supported_video">Automix non pris en charge sur les morceaux vidéo</string>
     <string name="automix_stopped_in_party">Automix : arrêté pendant Écouter ensemble</string>
     <string name="autoplay">Lecture automatique</string>
-    <string name="autoplay_empty_description">De la musique similaire continuera d\'être lue</string>
+    <string name="autoplay_empty_description">De la musique similaire continuera d'être lue</string>
     <string name="autoplay_off">AutoPlay désactivé</string>
     <string name="autoplay_on">AutoPlay activé</string>
     <string name="autoplay_queue_description">Musique similaire, sélectionnée pour être lue ensuite</string>
@@ -34,7 +34,7 @@
     <string name="high_quality_upgrading">Haute qualité, amélioration en cours</string>
     <string name="increase_lyrics_offset">Increase lyrics offset</string>
     <string name="instrumental">Instrumental</string>
-    <string name="like">J\'aime</string>
+    <string name="like">J’aime</string>
     <string name="listen_together">Écouter ensemble</string>
     <string name="listen_together_away">Absent — sa place est gardée</string>
     <string name="listen_together_host">Hôte</string>
@@ -48,17 +48,17 @@
     <string name="mixing">Mixage</string>
     <string name="lossless">Sans perte</string>
     <string name="lyrics_already_in_language">Ces paroles sont déjà en %1$s</string>
-    <string name="lyrics_already_romanized">Ces paroles utilisent déjà l\'alphabet latin</string>
+    <string name="lyrics_already_romanized">Ces paroles utilisent déjà l'alphabet latin</string>
     <string name="lyrics_by">Paroles de %1$s</string>
     <string-array name="lyrics_intro_lines">
         <item>Le beat arrive</item>
         <item>La chanson démarre</item>
         <item>Échauffement</item>
         <item>Ambiance en préparation</item>
-        <item>La basse d\'abord, les mots ensuite</item>
+        <item>La basse d'abord, les mots ensuite</item>
         <item>Patience…</item>
         <item>Sentez la montée</item>
-        <item>Pour l\'instant, juste le groove</item>
+        <item>Pour l'instant, juste le groove</item>
         <item>Le refrain arrive</item>
         <item>Laissez-la respirer</item>
         <item>Voix en approche</item>
@@ -87,7 +87,7 @@
     <string name="lyrics_provider_found">Paroles trouvées · Touche pour les utiliser</string>
     <string name="lyrics_provider_not_fetched">Touche pour récupérer</string>
     <string name="lyrics_provider_not_found">Paroles introuvables</string>
-    <string name="lyrics_romanization_unavailable">La romanisation n\'est pas disponible pour ces paroles</string>
+    <string name="lyrics_romanization_unavailable">La romanisation n'est pas disponible pour ces paroles</string>
     <string name="lyrics_romanized">Prononciation romanisée</string>
     <string name="lyrics_saved_with_download">Paroles enregistrées avec ce téléchargement</string>
     <string name="lyrics_share_pick_limit">La carte est pleine</string>
@@ -97,7 +97,7 @@
     <string name="mono">Mono</string>
     <string name="more">Plus</string>
     <string name="next_from">À suivre depuis : %1$s</string>
-    <string name="next_in_queue">Suivant dans la file d\'attente</string>
+    <string name="next_in_queue">Suivant dans la file d'attente</string>
     <string name="no_lyrics_for_track">Aucune parole pour ce titre</string>
     <string name="no_lyrics_found">Aucune parole trouvée</string>
     <string name="now_playing">Lecture en cours</string>
@@ -105,11 +105,11 @@
     <string name="pause">Pause</string>
     <string name="play">Lecture</string>
     <string name="played_by">Played by %1$s</string>
-    <string name="playing_from">Playing from %1$s</string>
+    <string name="playing_from">Lecture depuis %1$s</string>
     <string name="playing_radio">Lecture de la radio %1$s</string>
-    <string name="queue">File d\'attente</string>
-    <string name="remove_from_liked">Retirer de Musique que j\'aime</string>
-    <string name="remove_from_queue">Retirer de la file d\'attente</string>
+    <string name="queue">File d’attente</string>
+    <string name="remove_from_liked">Retirer de Musique que j’aime</string>
+    <string name="remove_from_queue">Retirer de la file d'attente</string>
     <string name="repeat_all">Tout répéter</string>
     <string name="repeat_off">Répétition désactivée</string>
     <string name="repeat_one">Répéter une chanson</string>
@@ -130,7 +130,7 @@
     <string name="usb_audio">USB audio</string>
     <string name="hdmi_output">HDMI</string>
     <string name="personal_phone">%1$s’s Phone</string>
-    <string name="this_phone">This phone</string>
+    <string name="this_phone">Ce téléphone</string>
     <string name="albums">Albums</string>
     <string name="artists">Artistes</string>
     <string name="card_plays_format">%1$s écoutes</string>
@@ -142,7 +142,7 @@
     <string name="library">Bibliothèque</string>
     <string name="library_sign_in_description">Connectez-vous à votre compte Google pour voir vos chansons aimées, vos playlists et votre historique YouTube Music.</string>
     <string name="new_playlist">Nouvelle playlist</string>
-    <string name="on_device">Sur l\'appareil</string>
+    <string name="on_device">Sur l’appareil</string>
     <string name="personalized_recommendations">Recevez des recommandations personnalisées</string>
     <string name="pinned">Épinglé</string>
     <string name="play_next">Lire ensuite</string>
@@ -189,10 +189,10 @@
     <string name="sign_in">Se connecter</string>
     <string name="sign_in_youtube_music">Se connecter à YouTube Music</string>
     <string name="subscriptions">Abonnements</string>
-    <string name="switch_to_grid_view">Passer à l\'affichage en grille</string>
-    <string name="switch_to_list_view">Passer à l\'affichage en liste</string>
+    <string name="switch_to_grid_view">Passer à l’affichage en grille</string>
+    <string name="switch_to_list_view">Passer à l’affichage en liste</string>
     <string name="your_replay">Votre Replay</string>
-    <string name="your_listening_experience">Votre expérience d\'écoute</string>
+    <string name="your_listening_experience">Votre expérience d’écoute</string>
     <string name="default_replay_holder">Auditeur BitChord</string>
     <string name="member_since">Membre depuis</string>
     <string name="import_spotify">Importer depuis Spotify</string>

@@ -53,6 +53,7 @@ import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
@@ -123,10 +124,21 @@ import com.music.bitchord.data.innertube.PlayerClient
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.navidrome.NavidromeIds
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeMediaResolver
+import com.music.bitchord.data.navidrome.NavidromePlaybackContext
+import com.music.bitchord.data.navidrome.NavidromePlaybackReporter
+import com.music.bitchord.data.navidrome.NavidromeQueueIdentity
+import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER_VALUE
 import com.music.bitchord.data.scrobbling.LastFM
 import com.music.bitchord.data.scrobbling.ListenBrainzManager
 import com.music.bitchord.data.scrobbling.ScrobbleManager
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.navidrome.NavidromeTranscodeProfile
+import com.music.bitchord.data.navidrome.NavidromeTranscoding
 import com.music.bitchord.data.settings.EqualizerMode
 import com.music.bitchord.data.settings.OutputPcmMode
 import com.music.bitchord.data.sources.SourceResolver
@@ -137,6 +149,7 @@ import com.music.bitchord.playback.smart.AutomixAnalysisSource
 import com.music.bitchord.playback.smart.VersionAudioAligner
 import com.music.bitchord.widget.MediaWidget
 import com.music.bitchord.widget.MediaWidgetSnapshot
+import com.music.bitchord.ui.player.latestLyricIndex
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -621,7 +634,7 @@ class PlaybackService : MediaLibraryService() {
     private val trackAnalyzer = com.music.bitchord.playback.smart.TrackAnalyzer(this, AudioCache)
 
     /** Shared with the crossfade's tail player, so both read the same disk cache. */
-    private var mediaSourceFactory: DefaultMediaSourceFactory? = null
+    private var mediaSourceFactory: MediaSource.Factory? = null
 
     /** Last sampled position of the playing track, in seconds. */
     private var lastPositionSeconds = 0L
@@ -688,6 +701,7 @@ class PlaybackService : MediaLibraryService() {
     private var discordPresenceUp = false
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val navidromePlaybackReporter = NavidromePlaybackReporter(scope)
     private val localBitrateCache = ConcurrentHashMap<String, Int>()
 
     /**
@@ -842,6 +856,7 @@ class PlaybackService : MediaLibraryService() {
 
             val song = exoPlayer.currentMediaItem?.toSong()
             val durationMs = exoPlayer.duration.takeIf { it > 0 }
+            navidromePlaybackReporter.onPlayingChanged(isPlaying, song, durationMs)
             scrobbleManager?.onPlayerStateChanged(isPlaying, song, durationMs)
 
             // The listening record has to be told a pause happened, not merely
@@ -1276,6 +1291,31 @@ class PlaybackService : MediaLibraryService() {
             // usually *not* the one playing, which is exactly why the lines
             // have to say. See [TrackLog.about].
             val about = TrackLog.about(mediaIdIn(dataSpec.uri))
+            NavidromeIds.songIdFromPlaybackUri(dataSpec.uri.toString())?.let { songId ->
+                val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
+                    ?: throw java.io.IOException("Navidrome is not configured")
+                val requestedQuality = NavidromeTranscodeProfile.fromWire(
+                    dataSpec.uri.getQueryParameter("qf"),
+                    dataSpec.uri.getQueryParameter("qk")?.toIntOrNull(),
+                ) ?: NavidromeTranscoding.effective(AppSettings.meteredConnection.value)
+                val streamUrl = NavidromeMediaResolver.streamUrl(
+                    config,
+                    songId,
+                    requestedQuality,
+                ).newBuilder().apply {
+                    // This is non-sensitive track metadata. Keeping it through the
+                    // resolver gives the generated AAC/MP3 extractor a finite duration.
+                    dataSpec.uri.getQueryParameter("d")?.let { addQueryParameter("bitchordDurationSec", it) }
+                }.build()
+                NavidromeStreaming.register(
+                    songId,
+                    dataSpec.uri.getQueryParameter("d")?.toIntOrNull(),
+                )
+                return@Resolver dataSpec.buildUpon()
+                    .setUri(Uri.parse(streamUrl.toString()))
+                    .setHttpRequestHeaders(mapOf(NAVIDROME_SOURCE_HEADER to NAVIDROME_SOURCE_HEADER_VALUE))
+                    .build()
+            }
             // A source-backed track is resolved by whichever source can serve
             // it, which is not necessarily the one it was queued from — see
             // [SourceResolver.resolve]. Handled ahead of the YouTube path
@@ -1547,7 +1587,10 @@ class PlaybackService : MediaLibraryService() {
             // Innermost, so it chunks the real googlevideo URL the resolver
             // above has already substituted in — see [ChunkedDataSource] for
             // why an open-ended read of one is worth avoiding.
-            ChunkedDataSource.Factory(OkHttpDataSource.Factory(Http.client), STREAM_CHUNK_BYTES),
+            ChunkedDataSource.Factory(
+                NavidromeTranscodeDataSourceFactory(this, OkHttpDataSource.Factory(Http.client)),
+                STREAM_CHUNK_BYTES,
+            ),
         ) { dataSpec ->
             // Wrapped rather than folded into the resolver above so the record
             // is made in one place for every branch of it, and made from what
@@ -1557,11 +1600,15 @@ class PlaybackService : MediaLibraryService() {
             // track's bytes it is fetching; this is the seam where both are in
             // hand. See [StreamContainer].
             streamResolver.resolveDataSpec(dataSpec).also { resolved ->
-                mediaIdIn(dataSpec.uri)?.let { StreamContainer.served(it, resolved.uri.toString()) }
+                val navidrome = NavidromeIds.songIdFromPlaybackUri(dataSpec.uri.toString()) != null
+                if (!navidrome) mediaIdIn(dataSpec.uri)?.let {
+                    StreamContainer.served(it, resolved.uri.toString())
+                }
                 // The same seam tells the cache whose file it is writing, which
                 // decides whether the entry outlives the track — see
                 // [AudioCache.Origin].
-                AudioCache.recordServed(dataSpec, resolved.uri.toString())
+                if (navidrome) AudioCache.recordNavidromeServed(dataSpec)
+                else AudioCache.recordServed(dataSpec, resolved.uri.toString())
             }
         }
         // Read-ahead resolves streams through the same chain the player does.
@@ -1574,11 +1621,11 @@ class PlaybackService : MediaLibraryService() {
         AudioCache.setUpstream(defaultDataSourceFactory)
         // DsdExtractorsFactory: the stock extractors plus DSF/DFF, which Media3
         // cannot open at all. A DSD file leaves the extractor as float PCM.
-        mediaSourceFactory = DefaultMediaSourceFactory(
+        mediaSourceFactory = NavidromeMediaSourceFactory(DefaultMediaSourceFactory(
             AudioCache.playbackFactory(defaultDataSourceFactory),
-            DsdExtractorsFactory(),
+            DsdExtractorsFactory(NavidromeStreaming.extractorsFactory()),
         )
-            .setLoadErrorHandlingPolicy(PermanentAwareLoadErrorPolicy())
+            .setLoadErrorHandlingPolicy(PermanentAwareLoadErrorPolicy()))
 
         configuredFloatOutput = shouldEnableFloatOutput()
         val exoPlayer = buildPlayer(
@@ -1630,6 +1677,30 @@ class PlaybackService : MediaLibraryService() {
         } else {
             MediaWidgetSnapshot.save(this, MediaWidgetSnapshot.EMPTY)
             MediaWidget.refresh(this)
+        }
+        scope.launch(Dispatchers.Main) {
+            NavidromeStore.state
+                .map { (it as? NavidromeStore.State.Configured)?.config?.forceStreaming ?: false }
+                .distinctUntilChanged()
+                .drop(1)
+                .collectLatest {
+                    // Existing queue entries may already hold a downloaded file URI.
+                    // Rebuild them so this policy applies immediately, not only to
+                    // tracks queued after the switch was changed.
+                    if ((0 until exoPlayer.mediaItemCount).none { index ->
+                            NavidromeIds.parse(exoPlayer.getMediaItemAt(index).mediaId)?.entity == NavidromeEntity.SONG
+                        }) return@collectLatest
+                    val index = exoPlayer.currentMediaItemIndex.coerceAtLeast(0)
+                    val position = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    val playWhenReady = exoPlayer.playWhenReady
+                    val items = (0 until exoPlayer.mediaItemCount)
+                        .map { exoPlayer.getMediaItemAt(it).toSong().toMediaItem() }
+                    if (items.isNotEmpty()) {
+                        exoPlayer.setMediaItems(items, index.coerceAtMost(items.lastIndex), position)
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = playWhenReady
+                    }
+                }
         }
         // History pings fire once a track is actually audible — both when
         // playback starts and when the queue moves on while already playing.
@@ -2972,6 +3043,7 @@ class PlaybackService : MediaLibraryService() {
         ListeningRecorder.onStopped()
         val newSong = mediaItem?.toSong()
         val durationMs = exoPlayer.duration.takeIf { it > 0 }
+        navidromePlaybackReporter.onTrackChanged(newSong, durationMs, exoPlayer.isPlaying)
         if (exoPlayer.isPlaying) {
             scrobbleManager?.onSongStart(newSong, durationMs)
         }
@@ -5145,6 +5217,7 @@ class PlaybackService : MediaLibraryService() {
         LastPlayed.saveQueue(
             songs = range.map { player.getMediaItemAt(it).toSong() },
             index = player.currentMediaItemIndex - range.first,
+            accountKey = navidromeQueueAccount(player),
         )
         savePlaybackState(player)
     }
@@ -5163,6 +5236,7 @@ class PlaybackService : MediaLibraryService() {
             songs = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).toSong() },
             index = player.currentMediaItemIndex,
             positionMs = player.currentPosition,
+            accountKey = navidromeQueueAccount(player),
         )
     }
 
@@ -5191,9 +5265,25 @@ class PlaybackService : MediaLibraryService() {
     /** Restore the bounded queue without preparing or resolving a stream. */
     private fun restoreLastQueue(player: ExoPlayer): Boolean {
         val last = LastPlayed.load() ?: return false
+        val currentAccount = (NavidromeStore.state.value as? NavidromeStore.State.Configured)
+            ?.config?.accountKey
+        if (!NavidromeQueueIdentity.canRestore(last.songs.map { it.videoId }, last.accountKey, currentAccount)) {
+            LastPlayed.clearImmediately()
+            return false
+        }
         persistedQueueStart = 0
         player.setMediaItems(last.songs.map { it.toMediaItem() }, last.index, last.positionMs)
         return true
+    }
+
+    /** Account namespace only; no server URL, username, token or password enters the queue snapshot. */
+    private fun navidromeQueueAccount(player: ExoPlayer): String? {
+        val currentAccount = (NavidromeStore.state.value as? NavidromeStore.State.Configured)
+            ?.config?.accountKey
+        return NavidromeQueueIdentity.accountFor(
+            (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
+            currentAccount,
+        )
     }
 
     /**
@@ -6597,6 +6687,7 @@ class PlaybackService : MediaLibraryService() {
         val trackDurationMs = (player?.duration ?: 0L).takeIf { it > 0 } ?: 0L
 
         serviceLyricsJob?.cancel()
+        val requestedMediaId = currentSong.videoId
         serviceLyricsJob = scope.launch(Dispatchers.IO) {
             val localUri = currentSong.localUri
             var lines: List<LyricLine>? = null
@@ -6617,6 +6708,7 @@ class PlaybackService : MediaLibraryService() {
                 lines = found?.lines
             }
             withContext(Dispatchers.Main) {
+                if (player?.currentMediaItem?.mediaId != requestedMediaId) return@withContext
                 serviceLyrics = lines
                 if (player?.isPlaying == true) {
                     updateLyricSubtitle()
@@ -6647,7 +6739,7 @@ class PlaybackService : MediaLibraryService() {
         val lines = serviceLyrics
         val pos = exoPlayer.currentPosition
         val subtitleText = if (lines != null && lines.isNotEmpty() && AppSettings.syncedLyrics.value) {
-            val idx = lines.indexOfLast { it.timeMs <= pos }
+            val idx = latestLyricIndex(lines, pos)
             val currentLine = lines.getOrNull(idx)
             if (currentLine != null && !currentLine.isGap && currentLine.text.isNotBlank()) {
                 "♪ ${currentLine.text}"

@@ -51,7 +51,9 @@ fun AppleArtistArt.keyColors() = ArtworkKeyColors(Color(background), Color(accen
  *
  * A search will happily return somebody else, so an answer is only taken when
  * the name Apple gives back is the name that was asked for. Most artists have
- * no logo; those, and every miss, are cached so a revisit costs nothing.
+ * no logo; successful artwork lookups are cached. Misses are not cached,
+ * because an unreachable Apple endpoint is not evidence that an artist has no
+ * artwork.
  */
 object AppleArtistArtRepository {
 
@@ -63,10 +65,8 @@ object AppleArtistArtRepository {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
-    private class Entry(val art: AppleArtistArt?)
-
-    private val cache = object : LinkedHashMap<String, Entry>(CACHE_SIZE, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>) =
+    private val cache = object : LinkedHashMap<String, AppleArtistArt>(CACHE_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AppleArtistArt>) =
             size > CACHE_SIZE
     }
 
@@ -81,33 +81,30 @@ object AppleArtistArtRepository {
 
     /**
      * What is already known for [artistName], without a request — null for a
-     * name never looked up *and* for one known to have nothing, which is the
-     * same thing to a caller that is only deciding what to draw first.
+     * name has not resolved yet.
      */
     fun cached(artistName: String): AppleArtistArt? {
         val key = artistName.normalized()
-        return synchronized(cache) { cache[key] }?.art
+        return synchronized(cache) { cache[key] }
     }
 
     /** The header art for [artistName], or null when Apple has none. Never throws. */
     suspend fun artFor(artistName: String): AppleArtistArt? {
         val key = artistName.normalized()
         if (key.isEmpty()) return null
-        synchronized(cache) { cache[key] }?.let { return it.art }
+        synchronized(cache) { cache[key] }?.let { return it }
 
-        // Null here is a network hiccup, not an answer — only a settled result
-        // (including a genuine "no logo") is worth remembering.
-        val entry = withContext(Dispatchers.IO) {
+        val art = withContext(Dispatchers.IO) {
             runCatching { lookup(artistName, key) }
                 .onFailure { Log.d(TAG, "lookup failed for $artistName: $it") }
                 .getOrNull()
         } ?: return null
-        synchronized(cache) { cache[key] = entry }
+        synchronized(cache) { cache[key] = art }
         _updates.value++
-        return entry.art
+        return art
     }
 
-    private fun lookup(artistName: String, key: String): Entry? {
+    private fun lookup(artistName: String, key: String): AppleArtistArt? {
         val search = get(
             "https://itunes.apple.com/search?term=${URLEncoder.encode(artistName, "UTF-8")}" +
                 "&entity=musicArtist&limit=5",
@@ -124,10 +121,10 @@ object AppleArtistArtRepository {
                 break
             }
         }
-        if (page == null) return Entry(null)
+        if (page == null) return null
 
         val html = get(page) ?: return null
-        return Entry(parse(html))
+        return parse(html)
     }
 
     private fun parse(html: String): AppleArtistArt? {

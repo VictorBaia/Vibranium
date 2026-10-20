@@ -15,6 +15,8 @@ sealed interface DownloadProgress {
     /** [fraction] is 0f until the length is known, which is one request in. */
     data class Running(val fraction: Float) : DownloadProgress
 
+    data class Paused(val fraction: Float) : DownloadProgress
+
     data object Done : DownloadProgress
 
     data class Failed(val reason: String) : DownloadProgress
@@ -96,6 +98,7 @@ object DownloadSession {
                 val total = items.sumOf { item ->
                     when (val progress = item.progress) {
                         is DownloadProgress.Running -> progress.fraction.toDouble()
+                        is DownloadProgress.Paused -> progress.fraction.toDouble()
                         DownloadProgress.Queued -> 0.0
                         else -> 1.0
                     }
@@ -164,6 +167,9 @@ object DownloadSession {
 
     fun running(videoId: String, fraction: Float) =
         set(videoId, DownloadProgress.Running(fraction))
+
+    fun paused(videoId: String, fraction: Float) =
+        set(videoId, DownloadProgress.Paused(fraction))
 
     fun done(videoId: String) = set(videoId, DownloadProgress.Done)
 

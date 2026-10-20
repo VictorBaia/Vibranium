@@ -87,14 +87,28 @@ import com.music.bitchord.ui.components.recentlyPlayedSkeleton
 import com.music.bitchord.ui.components.heroCardWidth
 import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.ui.components.trackColumnWidth
+import com.music.bitchord.ui.components.ExplicitSongTitle
 import com.music.bitchord.ui.player.MeshGradientBackground
 import com.music.bitchord.ui.player.MeshPalette
 
 /** How far the Listen now heading and feed sit above the shared top inset. */
 private val HOME_TITLE_LIFT = 28.dp
 
-private const val RECENTS_TITLE = "Recents"
 private const val RECENT_TRACKS_PER_COLUMN = 4
+
+private fun isRecentsShelf(title: String): Boolean = title.trim().let { value ->
+    value.equals("Recents", ignoreCase = true) ||
+        value.equals("Recently played", ignoreCase = true) ||
+        value.equals("Recently Played", ignoreCase = true) ||
+        value.equals("Reproduzidos recentemente", ignoreCase = true) ||
+        value.equals("Tocados recentemente", ignoreCase = true) ||
+        value.equals("Recentes", ignoreCase = true) ||
+        value.equals("Recentemente reproduzido", ignoreCase = true) ||
+        value.equals("Recently played albums", ignoreCase = true) ||
+        value.equals("Álbuns ouvidos recentemente", ignoreCase = true) ||
+        value.equals("Gần đây", ignoreCase = true) ||
+        value.equals("最近", ignoreCase = true)
+}
 
 private fun ShelfItem.matchesCurrentlyPlaying(song: Song?): Boolean {
     song ?: return false
@@ -252,7 +266,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     shelves.forEachIndexed { index, shelf ->
         item(key = shelf.title + index) {
             val openItem: (ShelfItem) -> Unit = { item -> onItemClick(item, shelf.title) }
-            if (index == 0 && shelf.title.equals(RECENTS_TITLE, ignoreCase = true)) {
+            if (isRecentsShelf(shelf.title)) {
                 RecentShelf(
                     shelf = shelf,
                     onItemClick = openItem,
@@ -417,6 +431,7 @@ private fun RecentTrackRow(
         title = item.title,
         subtitle = item.subtitle,
         thumbnailUrl = item.thumbnailUrl,
+        isExplicit = item.isExplicit,
         onClick = onClick,
         onLongPress = onLongPress,
         isCurrent = isCurrent,
@@ -434,6 +449,7 @@ fun CompactTrackRow(
     title: String,
     subtitle: String,
     thumbnailUrl: String?,
+    isExplicit: Boolean? = null,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)?,
     isCurrent: Boolean = false,
@@ -462,12 +478,11 @@ fun CompactTrackRow(
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
+            ExplicitSongTitle(
+                title = title,
+                isExplicit = isExplicit,
                 style = MaterialTheme.typography.titleMedium,
                 color = if (isCurrent) PlayingAccent else MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = subtitle,

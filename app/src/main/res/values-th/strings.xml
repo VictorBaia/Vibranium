@@ -147,7 +147,6 @@
     <string name="download_quality">คุณภาพการดาวน์โหลด</string>
     <string name="download_wifi_only">ดาวน์โหลดผ่าน Wi-Fi เท่านั้น</string>
     <string name="convert_to_audio">แปลงเป็นเสียง</string>
-    <string name="convert_to_video">แปลงเป็นวิดีโอ</string>
     <string name="converting_to_audio">กำลังแปลงเป็นเสียง…</string>
     <string name="revert_to_original">กลับไปใช้ต้นฉบับ</string>
     <string name="spatial_audio">เสียงเชิงพื้นที่</string>
@@ -848,7 +847,7 @@
 
     <string name="dolby_atmos_subtitle">Play the more immersive, surround version of a song when there is one.</string>
 
-    <string name="dolby_atmos_unavailable">This device can\'t play Atmos, so these songs play in their usual version</string>
+    <string name="dolby_atmos_unavailable">This device can’t play Atmos, so these songs play in their usual version</string>
 
     <string name="prefer_music_only">Prefer music-only version</string>
 
@@ -897,9 +896,9 @@
 
     <string name="system_equalizer">System equalizer</string>
 
-    <string name="system_equalizer_subtitle">Your device\'s own panel</string>
+    <string name="system_equalizer_subtitle">Your device’s own panel</string>
 
-    <string name="system_equalizer_footer">Runs after BitChord\'s, on the whole audio session. Using both applies both.</string>
+    <string name="system_equalizer_footer">Runs after BitChord’s, on the whole audio session. Using both applies both.</string>
 
     <string name="eq_preset_flat">Flat</string>
 
@@ -965,8 +964,8 @@
     <string name="cast_device_connecting">Connecting…</string>
     <string name="cast_device_connected">Casting</string>
     <string name="cast_stop">Stop casting</string>
-    <string name="cast_track_unsupported">This track can\'t be cast</string>
-    <string name="cast_connect_failed">Couldn\'t connect to the receiver</string>
+    <string name="cast_track_unsupported">This track can’t be cast</string>
+    <string name="cast_connect_failed">Couldn’t connect to the receiver</string>
     <string name="audio_pipeline_subtitle">เส้นทางสัญญาณแบบเรียลไทม์ จากตัวถอดรหัสถึงเอาต์พุต</string>
 
     <string name="pipeline_track_info">Track Info</string>

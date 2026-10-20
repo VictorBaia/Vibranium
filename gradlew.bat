@@ -35,6 +35,11 @@ for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 
+@rem Windows JDK 21 may fail to create NIO selector pipes when java.io.tmpdir
+@rem resolves through an 8.3 short path. JAVA_TOOL_OPTIONS is inherited by the
+@rem Gradle daemon, so both the wrapper and daemon use a stable socket directory.
+set "JAVA_TOOL_OPTIONS=%JAVA_TOOL_OPTIONS% -Djdk.net.unixdomain.tmpdir=C:/Windows/Temp"
+
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 

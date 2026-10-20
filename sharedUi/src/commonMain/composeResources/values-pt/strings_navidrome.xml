@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">Adicionar à fila</string>
+    <string name="top_result">Resultado principal</string>
+    <string name="artist">Artista</string>
+    <string name="album">Álbum</string>
+    <string name="explore_under_construction">Em construção, volte mais tarde.</string>
+</resources>

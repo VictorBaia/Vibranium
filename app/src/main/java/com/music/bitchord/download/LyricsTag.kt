@@ -6,6 +6,9 @@ import com.music.bitchord.data.lyrics.toEnhancedLrc
 import com.music.bitchord.data.lyrics.toLrc
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.durationMillis
+import com.music.bitchord.data.navidrome.AppNavidromeCatalogue
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeIds
 import com.music.bitchord.data.settings.AppSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
@@ -56,6 +59,25 @@ internal object LyricsTag {
     internal class Embeddable(val plain: String, val enhanced: String?)
 
     suspend fun forTrack(track: Song): Embeddable? {
+        // A Navidrome download must bring its server-native lyrics with it.
+        // This lookup also warms the persistent lyrics cache used by the
+        // player when the device later has no connection.
+        val navidrome = NavidromeIds.parse(track.videoId)
+            ?.takeIf { it.entity == NavidromeEntity.SONG }
+            ?.let {
+                try {
+                    withTimeoutOrNull(LOOKUP_MS) {
+                        AppNavidromeCatalogue.current.lyrics(track.videoId).getOrNull()
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.d(TAG, "no Navidrome lyrics for ${track.videoId}: ${e.message}")
+                    null
+                }
+            }
+        encode(navidrome, track.videoId, "Navidrome")?.let { return it }
+
         val sources = if (AppSettings.syncedLyrics.value) {
             AppSettings.lyricsSources.value
         } else {
@@ -98,27 +120,35 @@ internal object LyricsTag {
         // provider that answered with timing and no words, comes back as. Those
         // convert to a column of bare timestamps, which is not lyrics — and is
         // not blank either, so the length check below would let it through.
-        if (found.lines.none { it.text.isNotBlank() }) return null
+        return encode(found.lines, track.videoId, found.source.label)
+    }
 
-        val lrc = found.lines.toLrc()
+    private fun encode(
+        lines: List<com.music.bitchord.data.lyrics.LyricLine>?,
+        trackId: String,
+        source: String,
+    ): Embeddable? {
+        if (lines == null || lines.none { it.text.isNotBlank() }) return null
+
+        val lrc = lines.toLrc()
         if (lrc.length > MAX_LRC_CHARS) {
             // Every byte of this is about to be copied into a file the user
             // keeps, and the size is decided by a third party's response body.
             // A cap is the difference between a bad answer costing the lyrics
             // and one costing the download's file size.
-            Log.w(TAG, "lyrics for ${track.videoId} are ${lrc.length} chars; not embedding")
+            Log.w(TAG, "lyrics for $trackId are ${lrc.length} chars; not embedding")
             return null
         }
         if (lrc.isBlank()) return null
         // Capped the same way and for the same reason as the plain form; the
         // word stamps roughly double it, so it gets its own headroom rather
         // than sharing the budget and pushing the portable field out.
-        val enhanced = found.lines.toEnhancedLrc().takeIf {
+        val enhanced = lines.toEnhancedLrc().takeIf {
             it.isNotBlank() && it.length <= MAX_LRC_CHARS * 2
         }
         Log.d(
             TAG,
-            "embedding ${found.source.label} lyrics for ${track.videoId}" +
+            "embedding $source lyrics for $trackId" +
                 if (enhanced != null) " (word-synced)" else "",
         )
         return Embeddable(plain = lrc, enhanced = enhanced)

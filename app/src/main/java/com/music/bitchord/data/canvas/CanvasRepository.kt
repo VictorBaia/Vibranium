@@ -31,28 +31,18 @@ import kotlinx.coroutines.withContext
  * — network, parse, mismatch — as simply no canvas. The still art is always
  * underneath, so nothing here can break the player or the album page.
  *
- * Results are cached, misses included: nothing having a canvas is the common
- * case, and without negative caching every revisit would pay for three
- * lookups again to learn the same thing.
+ * Positive results are cached. A provider failure and a genuine missing canvas
+ * are indistinguishable to us, so a miss is deliberately not remembered: an
+ * album opened while a provider is briefly unavailable must be able to recover
+ * its animated cover without requiring the app to be restarted.
  */
 object CanvasRepository {
 
     private const val TAG = "CanvasRepository"
     private const val CACHE_SIZE = 64
 
-    /**
-     * A settled answer for one track or release.
-     *
-     * [withAlbum] records whether the album name was known when this was
-     * worked out. It is the one thing that can turn a miss into a hit later:
-     * the album is what makes the catalogue searches land, and on the player
-     * it resolves a beat after the track starts. A miss reached without it is
-     * therefore provisional; everything else is final.
-     */
-    private class Entry(val artwork: CanvasArtwork?, val withAlbum: Boolean)
-
-    private val cache = object : LinkedHashMap<String, Entry>(CACHE_SIZE, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>) =
+    private val cache = object : LinkedHashMap<String, CanvasArtwork>(CACHE_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CanvasArtwork>) =
             size > CACHE_SIZE
     }
 
@@ -82,13 +72,12 @@ object CanvasRepository {
         // Keyed on the track alone. The album is deliberately not part of
         // this: it arrives after the player opens, and keying on it made the
         // late arrival look like a different question and run the whole chain
-        // a second time. [reusable] decides when the earlier answer still
-        // stands instead.
+        // a second time.
         val album = song.albumName
         val spotifyFirst = AppSettings.prioritizeSpotifyCanvas.value
         val key = cacheKey("song|${song.videoId}", spotifyFirst)
 
-        return resolve(key, album != null) {
+        return resolve(key) {
             if (spotifyFirst) {
                 firstHit(
                     { SpotifyCanvas.search(title, artist, album) },
@@ -119,7 +108,7 @@ object CanvasRepository {
             base = "song|${song.videoId}",
             spotifyFirst = AppSettings.prioritizeSpotifyCanvas.value,
         )
-        return synchronized(cache) { cache[key]?.artwork }
+        return synchronized(cache) { cache[key] }
     }
 
     /**
@@ -136,7 +125,7 @@ object CanvasRepository {
         if (name.isBlank() || credit.isBlank()) return null
 
         val spotifyFirst = AppSettings.prioritizeSpotifyCanvas.value
-        return resolve(cacheKey("album|$name|$credit", spotifyFirst), withAlbum = true) {
+        return resolve(cacheKey("album|$name|$credit", spotifyFirst)) {
             if (spotifyFirst) {
                 firstHit(
                     { SpotifyCanvas.searchAlbum(name, credit) },
@@ -161,26 +150,13 @@ object CanvasRepository {
 
     private suspend fun resolve(
         key: String,
-        withAlbum: Boolean,
         lookUp: suspend () -> CanvasArtwork?,
     ): CanvasArtwork? = lock.withLock {
-        synchronized(cache) {
-            cache[key]?.let { if (it.reusable(withAlbum)) return@withLock it.artwork }
-        }
+        synchronized(cache) { cache[key] }?.let { return@withLock it }
         val found = withContext(Dispatchers.IO) { lookUp() }
-        synchronized(cache) { cache[key] = Entry(found, withAlbum) }
+        if (found != null) synchronized(cache) { cache[key] = found }
         found
     }
-
-    /**
-     * Whether this answer can stand in for a lookup that now knows [withAlbum].
-     *
-     * A hit is a hit — the album could only have confirmed it. A miss stands
-     * too, unless it was reached blind and there is now an album name to try,
-     * which is the one case worth spending a second round of requests on.
-     */
-    private fun Entry.reusable(withAlbum: Boolean): Boolean =
-        artwork != null || this.withAlbum || !withAlbum
 
     /**
      * The first source that answers with something that survives [accept].

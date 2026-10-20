@@ -5,8 +5,16 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.cache.CacheUsageEntry
+import com.music.bitchord.playback.DynamicLruCacheEvictor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -33,22 +41,28 @@ import java.io.File
 @UnstableApi
 object CanvasCache {
 
-    /**
-     * Small on purpose — a clip is a few seconds of video, not a song, and
-     * this only needs to outlive one player screen's worth of looping, not
-     * a library. [SimpleCache]'s own evictor reclaims the rest.
-     */
-    private const val CACHE_LIMIT_BYTES = 150L * 1024 * 1024
-
     private lateinit var cache: SimpleCache
+    private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_VIDEO_CACHE_LIMIT_BYTES)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /** Opened once per process, alongside [com.music.bitchord.playback.AudioCache.init]. */
     fun init(context: Context) {
+        if (::cache.isInitialized) return
+        evictor.maxBytes = AppSettings.videoCacheLimitBytes.value
         cache = SimpleCache(
             File(context.cacheDir, "canvas"),
-            LeastRecentlyUsedCacheEvictor(CACHE_LIMIT_BYTES),
+            evictor,
             StandaloneDatabaseProvider(context),
         )
+        // The ceiling is mutable so a settings change applies to the already
+        // opened cache and to every later canvas/video write without interrupting
+        // a player that currently holds a CacheDataSource reference.
+        scope.launch {
+            AppSettings.videoCacheLimitBytes.collect { maxBytes ->
+                evictor.maxBytes = maxBytes
+                evictor.applyNow(cache)
+            }
+        }
     }
 
     /**
@@ -63,4 +77,21 @@ object CanvasCache {
             .setCache(cache)
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+    /** Removes every cached animated artwork clip. */
+    fun clear() {
+        if (!::cache.isInitialized) return
+        cache.keys.toList().forEach { key -> runCatching { cache.removeResource(key) } }
+    }
+
+    /** Every cached canvas, artist video and animated album cover on disk. */
+    suspend fun storageEntries(): List<CacheUsageEntry> = withContext(Dispatchers.IO) {
+        if (!::cache.isInitialized) return@withContext emptyList()
+        cache.keys.mapNotNull { key ->
+            val bytes = cache.getCachedSpans(key)
+                .filter { it.isCached && it.file?.exists() == true }
+                .sumOf { it.length }
+            if (bytes <= 0L) null else CacheUsageEntry(key.substringAfterLast('/').ifBlank { key }, bytes)
+        }.sortedByDescending { it.bytes }
+    }
 }

@@ -3,7 +3,7 @@
     <!--
       From API 31 the launcher rounds every widget to this radius itself. Baking
       the same number into the artwork bitmap makes the two coincide; any other
-      value shows up as either a square corner poking out of the host's mask or
+      value shows up as either a square corner poking out of the host’s mask or
       a transparent notch inside it.
     -->
     <dimen name="widget_corner_radius">@android:dimen/system_app_widget_background_radius</dimen>

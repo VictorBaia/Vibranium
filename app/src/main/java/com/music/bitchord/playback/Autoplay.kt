@@ -2,6 +2,8 @@ package com.music.bitchord.playback
 
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.listentogether.ListenTogether
+import com.music.bitchord.data.navidrome.AppNavidromeCatalogue
+import com.music.bitchord.data.navidrome.NavidromeIds
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.model.QueueTier
@@ -101,6 +103,14 @@ suspend fun loadAutoplayTracks(
     seedSong: Song,
     limit: Int = MAX_QUEUED_AUTOPLAY,
 ): Result<List<Song>> {
+    if (NavidromeIds.parse(seedSong.videoId) != null) {
+        val extra = AppNavidromeCatalogue.current
+            .randomSongs(existing.mapTo(HashSet()) { it.videoId }, limit)
+            .getOrElse { return Result.failure(it) }
+        return Result.success(extra.map {
+            it.copy(radioName = seedSong.radioName).asQueueEntry(QueueTier.AUTOPLAY)
+        })
+    }
     val seed = youtubeSeedFor(seedSong) ?: return Result.success(emptyList())
     val related = YtMusicRepository.radio(seed).getOrElse { return Result.failure(it) }
     val extra = QueueBuilder.extend(existing, related, limit)

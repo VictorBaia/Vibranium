@@ -5,7 +5,7 @@
   blur as widget_media_compact; the extra width goes to the track, because three
   glyphs spread across four cells reads as an empty bar.
 
-  See widget_media_compact for why the band's height has to match the blurred
+  See widget_media_compact for why the band’s height has to match the blurred
   region, and why nothing in it is clickable except the buttons themselves.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"

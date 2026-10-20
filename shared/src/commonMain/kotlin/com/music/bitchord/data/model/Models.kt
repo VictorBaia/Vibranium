@@ -119,6 +119,12 @@ data class Song(
     val playbackSourceType: PlaybackSourceType? = null,
     /** Browse id for an album, playlist, or other source page. */
     val playbackSourceId: String? = null,
+    /**
+     * Position provided by the source inside its release. Null means that the
+     * source did not publish a stable track number, so callers may use their
+     * collection order as a display fallback.
+     */
+    val releaseTrackNumber: Int? = null,
 ) {
     /** Legacy derived property: true if and only if [queueTier] is [QueueTier.AUTOPLAY]. */
     val fromAutoplay: Boolean get() = queueTier == QueueTier.AUTOPLAY
@@ -248,16 +254,47 @@ fun String?.durationMillis(): Long {
 }
 
 /** As [Song.artworkAt], for artwork that isn't a track's. */
-fun String?.artworkAt(px: Int): String? = this?.replace(SIZE_HINT, "w$px-h$px")
-
-private val SIZE_HINT = Regex("""w\d+-h\d+""")
+fun String?.artworkAt(px: Int): String? = this?.let { url ->
+    if (url.startsWith(NAVIDROME_ARTWORK_PREFIX)) {
+        val size = px.coerceIn(MIN_REMOTE_ART_PX, MAX_REMOTE_ART_PX)
+        when {
+            NAVIDROME_SIZE_HINT.containsMatchIn(url) ->
+                NAVIDROME_SIZE_HINT.replace(url) { match -> "${match.groupValues[1]}size=$size" }
+            '?' in url -> "$url&size=$size"
+            else -> "$url?size=$size"
+        }
+    } else {
+        url.replace(SIZE_HINT, "w$px-h$px")
+    }
+}
 
 /**
- * Artwork for a list row — 52dp at most, so about 140px on a 3x screen.
- * Rounded up, and one value for every row in the app rather than one per
- * row height, so they share a cache entry instead of each fetching its own.
+ * The canonical original artwork identity for a primary surface (the player
+ * or an album page). Navidrome uses `size=0` for the source image. Normalize
+ * any thumbnail URI to that explicit identity so the request and disk cache
+ * can never inherit a 256/480/720px rendition from another surface.
  */
-const val ROW_ART_PX = 160
+fun String?.originalArtwork(): String? = this?.let { url ->
+    if (!url.startsWith(NAVIDROME_ARTWORK_PREFIX)) return@let url
+    val path = url.substringBefore('?')
+    val parameters = url.substringAfter('?', missingDelimiterValue = "")
+        .split('&')
+        .filter { it.isNotBlank() && it.substringBefore('=') != "size" }
+    path + "?" + (parameters + "size=0").joinToString("&")
+}
+
+private val SIZE_HINT = Regex("""w\d+-h\d+""")
+private val NAVIDROME_SIZE_HINT = Regex("""([?&])size=\d+""")
+private const val NAVIDROME_ARTWORK_PREFIX = "bitchord://navidrome-artwork/"
+private const val MIN_REMOTE_ART_PX = 64
+private const val MAX_REMOTE_ART_PX = 1_200
+
+/**
+ * Artwork for a list row. One 256px rendition is shared by every large list
+ * in the app; it keeps Navidrome from serving an original sleeve to a tiny
+ * row, while avoiding near-identical cache entries for every row height.
+ */
+const val ROW_ART_PX = 256
 
 /** Artwork for a shelf card: 166dp wide, so a little under 450px at 3x. */
 const val CARD_ART_PX = 480
@@ -333,6 +370,8 @@ data class ShelfItem(
     val thumbnailUrl: String?,
     val videoId: String?,
     val browseId: String?,
+    /** Explicit-content state when this shelf item represents a catalogue track. */
+    val isExplicit: Boolean? = null,
 )
 
 /** The signed-in Google account, as YouTube Music reports it. */
@@ -462,6 +501,8 @@ data class DetailPage(
     val type: BrowseType = BrowseType.OTHER,
     /** Albums / singles carousels, populated for artist pages. */
     val sections: List<HomeShelf> = emptyList(),
+    /** Artist-to-artist recommendations, rendered after the About section. */
+    val relatedArtists: HomeShelf? = null,
     /**
      * Tracks YouTube offers to round out a playlist but that were never
      * added — see [com.music.bitchord.data.innertube.InnertubeParser.parsePlaylistShelf].
@@ -569,8 +610,10 @@ data class UserPlaylist(
     val title: String,
     val subtitle: String,
     val thumbnailUrl: String?,
+    /** Explicit non-YouTube page identity; null preserves the legacy `VL` behavior. */
+    val sourceBrowseId: String? = null,
 ) {
-    val browseId: String get() = "VL$playlistId"
+    val browseId: String get() = sourceBrowseId ?: "VL$playlistId"
 }
 
 /**

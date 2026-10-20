@@ -105,7 +105,7 @@
     <string name="pause">Пауза</string>
     <string name="play">Играть</string>
     <string name="played_by">Played by %1$s</string>
-    <string name="playing_from">Playing from %1$s</string>
+    <string name="playing_from">Vosproizvoditsya iz %1$s</string>
     <string name="playing_radio">Воспроизведение радио %1$s</string>
     <string name="queue">Очередь</string>
     <string name="remove_from_liked">Удалить из понравившейся музыки</string>
@@ -130,7 +130,7 @@
     <string name="usb_audio">USB audio</string>
     <string name="hdmi_output">HDMI</string>
     <string name="personal_phone">%1$s’s Phone</string>
-    <string name="this_phone">This phone</string>
+    <string name="this_phone">Etot telefon</string>
     <string name="albums">Альбомы</string>
     <string name="artists">Исполнители</string>
     <string name="card_plays_format">%1$s прослушиваний</string>

@@ -2,17 +2,24 @@ package com.music.bitchord.ui.screens
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Lan
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.R
@@ -60,12 +67,6 @@ fun libraryLinks(): List<LibraryLink> {
             stringResource(R.string.downloaded_songs),
             "local:downloads",
         ),
-        link(
-            Icons.Rounded.Folder,
-            stringResource(R.string.local_music),
-            stringResource(R.string.audio_files_on_device),
-            "local:all",
-        ),
         // Opt-in from Settings → Storage: what the song cache is holding from
         // YouTube and JioSaavn. See [com.music.bitchord.playback.AudioCache.cachedSongs].
         link(
@@ -97,6 +98,47 @@ fun libraryLinks(): List<LibraryLink> {
         ).takeIf { spotifyConnected.isNotBlank() }?.copy(logo = Res.drawable.spotify_logo),
     )
 }
+
+/** Phone-only collection ids. They select a filtered Library list, not a server detail page. */
+const val NAVIDROME_ARTISTS_BROWSE_ID = "app:navidrome-artists"
+const val NAVIDROME_ALBUMS_BROWSE_ID = "app:navidrome-albums"
+
+/**
+ * The permanent Navidrome collections that sit directly below Downloads. They
+ * are intentionally rows: none is a user-created playlist.
+ */
+fun navidromeLibraryLinks(
+    likedTitle: String,
+    likedSubtitle: String,
+    likedCoverUri: String,
+    artistsTitle: String,
+    artistsSubtitle: String,
+    albumsTitle: String,
+    albumsSubtitle: String,
+): List<LibraryLink> = listOf(
+    LibraryLink(
+        ShelfItem(likedTitle, likedSubtitle, likedCoverUri, null, com.music.bitchord.data.navidrome.NavidromeIds.LIKED_SONGS_BROWSE_ID),
+        Icons.Rounded.Favorite,
+        customIcon = {
+            Icon(
+                painter = painterResource(R.drawable.liked_icon),
+                contentDescription = null,
+                tint = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier
+                    .width(20.dp)
+                    .height(18.dp),
+            )
+        },
+    ),
+    LibraryLink(
+        ShelfItem(artistsTitle, artistsSubtitle, null, null, NAVIDROME_ARTISTS_BROWSE_ID),
+        Icons.Rounded.Person,
+    ),
+    LibraryLink(
+        ShelfItem(albumsTitle, albumsSubtitle, null, null, NAVIDROME_ALBUMS_BROWSE_ID),
+        Icons.Rounded.Album,
+    ),
+)
 
 /**
  * The phone's "On device" shelf: the playlists and albums downloaded whole —

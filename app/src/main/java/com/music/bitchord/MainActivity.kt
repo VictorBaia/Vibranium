@@ -71,6 +71,8 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Upgrade
 import com.music.bitchord.data.listentogether.ServerConnectionState
+import com.music.bitchord.data.navidrome.NavidromeLyricsSettings
+import com.music.bitchord.data.navidrome.NavidromeStore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -129,6 +131,7 @@ import com.music.bitchord.data.NerdStats
 import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.innertube.InnertubeParser
 import com.music.bitchord.data.model.BrowseType
+import com.music.bitchord.data.model.Account
 import com.music.bitchord.data.model.HomeShelf
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.PlaybackSourceType
@@ -162,6 +165,7 @@ import com.music.bitchord.ui.screens.SPOTIFY_BROWSE_ID
 import com.music.bitchord.ui.screens.libraryLinks
 import com.music.bitchord.ui.screens.CACHE_FOLDER_BROWSE_ID
 import com.music.bitchord.ui.screens.ListenTogetherScreen
+import com.music.bitchord.ui.screens.NavidromeSettingsScreen
 import com.music.bitchord.ui.screens.PartyServerEditor
 import com.music.bitchord.ui.screens.SettingsScreen
 import com.music.bitchord.ui.screens.SourceEditorAlert
@@ -290,6 +294,10 @@ import com.music.bitchord.ui.screens.LocalMusicScreen
 import com.music.bitchord.ui.screens.HomeScreen
 import com.music.bitchord.ui.screens.LibraryGridPage
 import com.music.bitchord.ui.screens.LibraryScreen
+import com.music.bitchord.ui.screens.NavidromeLibraryCollectionScreen
+import com.music.bitchord.ui.screens.NAVIDROME_ALBUMS_BROWSE_ID
+import com.music.bitchord.ui.screens.NAVIDROME_ARTISTS_BROWSE_ID
+import com.music.bitchord.ui.screens.navidromeLibraryLinks
 import com.music.bitchord.ui.screens.MoodGenrePlaylistsScreen
 import com.music.bitchord.ui.screens.SearchScreen
 import com.music.bitchord.data.settings.SongSort
@@ -567,6 +575,7 @@ private fun BitChordApp(
     // A Library shelf's "Show all" — the shelf it was opened from, so its own
     // cards can be laid out again as a full-screen grid. See [LibraryGridPage].
     var libraryShowAll by remember { mutableStateOf<HomeShelf?>(null) }
+    var navidromeLibraryCollection by remember { mutableStateOf<String?>(null) }
     var detailActiveShelf by remember { mutableStateOf<HomeShelf?>(null) }
     var librarySortMenuOpen by remember { mutableStateOf(false) }
     var showLyricsSources by remember { mutableStateOf(false) }
@@ -748,6 +757,43 @@ private fun BitChordApp(
         }
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
+    val navidromeState by NavidromeStore.state.collectAsStateWithLifecycle()
+    // Navidrome is this build's only catalogue. A new installation therefore
+    // has no useful Home, Library or Search destination until it has a server;
+    // take it straight to the connection form instead of leaving it beneath a
+    // failed catalogue request. This intentionally reacts only to the absence
+    // of configuration, not a transient connection failure from an existing
+    // account.
+    LaunchedEffect(navidromeState) {
+        if (BuildConfig.NAVIDROME_MODE && navidromeState is NavidromeStore.State.NotConfigured) {
+            showSettings = true
+            settingsSubScreen = "navidrome"
+        }
+    }
+    val settingsAccount = (navidromeState as? NavidromeStore.State.Configured)?.config?.let { config ->
+        Account(
+            name = config.username,
+            email = config.serverUrl,
+            thumbnailUrl = config.profileImageUri.ifBlank { null },
+        )
+    } ?: account
+    val replayHolder = settingsAccount?.name.orEmpty()
+    val navidromeCollectionLinks = (libraryState as? UiState.Success)
+        ?.data
+        ?.takeIf { BuildConfig.NAVIDROME_MODE }
+        ?.let { page ->
+            val artists = page.shelves.firstOrNull { it.title == context.getString(R.string.artists) }
+            val albums = page.shelves.firstOrNull { it.title == context.getString(R.string.albums) }
+            navidromeLibraryLinks(
+                likedTitle = context.getString(R.string.auto_liked),
+                likedSubtitle = page.likedSongs.size.toString(),
+                likedCoverUri = "file:///android_asset/liked_cover.png",
+                artistsTitle = context.getString(R.string.artists),
+                artistsSubtitle = artists?.items?.size?.toString().orEmpty(),
+                albumsTitle = context.getString(R.string.albums),
+                albumsSubtitle = albums?.items?.size?.toString().orEmpty(),
+            )
+        }.orEmpty()
     val selectedChannelName by viewModel.selectedChannelName.collectAsStateWithLifecycle()
     val googleAccounts by viewModel.googleAccounts.collectAsStateWithLifecycle()
     val activeAccountId by viewModel.activeAccountId.collectAsStateWithLifecycle()
@@ -952,9 +998,6 @@ private fun BitChordApp(
     // remembering it, the automatic preference would see the restored video
     // as a fresh item and immediately convert it again.
     var keepVideoId by remember { mutableStateOf<String?>(null) }
-    // Track conversion from audio to video (inverse of above)
-    var convertedFromAudio by remember { mutableStateOf<Song?>(null) }
-    var convertedVideoId by remember { mutableStateOf<String?>(null) }
     // Optimistically updated track for instant UI updates when switching versions
     var optimisticVersionSong by remember { mutableStateOf<Song?>(null) }
     // Track whether alternate (film/video vs release/audio) version exists for current track
@@ -965,7 +1008,8 @@ private fun BitChordApp(
     // the track already playing rather than only the next one.
     val syncedLyricsEnabled by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
     val lyricsSources by AppSettings.lyricsSources.collectAsStateWithLifecycle()
-    LaunchedEffect(player.song?.videoId, player.durationMs, syncedLyricsEnabled, lyricsSources) {
+    val navidromeLyricsMode by NavidromeLyricsSettings.mode.collectAsStateWithLifecycle()
+    LaunchedEffect(player.song?.videoId, player.durationMs, syncedLyricsEnabled, lyricsSources, navidromeLyricsMode) {
         player.song?.let {
             viewModel.loadLyrics(
                 it.videoId,
@@ -1192,73 +1236,6 @@ private fun BitChordApp(
         }
     }
 
-    /**
-     * Resolve and apply the video version without replacing the audio row
-     * up front. This is the inverse of switchToMusicOnly.
-     */
-    suspend fun switchToVideo(song: Song, pauseWhileResolving: Boolean) {
-        val c = controller ?: return
-        val index = c.currentMediaItemIndex
-        if (index !in 0 until c.mediaItemCount ||
-            c.currentMediaItem?.mediaId != song.videoId ||
-            switchingAudioVersion
-        ) return
-
-        val resumeAfterResolution = pauseWhileResolving && c.playWhenReady
-        switchingAudioVersion = true
-        // Mirrors the music-only path: the bar lights up for the resolve and
-        // the service keeps it lit through the measure-and-cut, and the row
-        // stays on the audio version until that swap actually commits — see
-        // [alignmentPending] at the toggle.
-        val holdUntilAligned = AppSettings.smartVersionAlignment.value
-        if (holdUntilAligned) AppSettings.versionAlignmentInProgress.value = true
-        if (pauseWhileResolving) c.pause()
-        try {
-            TrackLog.d("Player", "video switch requested for '${song.title}'", song.videoId)
-            val video = runCatching { YtMusicRepository.resolveVideo(song) }.getOrNull()
-            val stillCurrent = c.currentMediaItemIndex == index &&
-                c.currentMediaItem?.mediaId == song.videoId
-
-            if (video == null || video.videoId == song.videoId) {
-                TrackLog.w("Player", "video switch found no distinct video", song.videoId)
-                if (stillCurrent && resumeAfterResolution) c.play()
-                return
-            }
-            if (!stillCurrent) {
-                TrackLog.d("Player", "video switch discarded; listener changed track", song.videoId)
-                return
-            }
-
-            convertedFromAudio = song
-            convertedVideoId = video.videoId
-            TrackLog.d("Player", "video switch applying '${video.title}' (${video.videoId})", song.videoId)
-            val target = video.copy(
-                queueTier = song.queueTier,
-                queueEntryId = song.queueEntryId,
-                radioName = song.radioName,
-                playbackSource = song.playbackSource,
-                playbackSourceType = song.playbackSourceType,
-                playbackSourceId = song.playbackSourceId,
-            )
-            // Not while an alignment is still owed: claiming the video here
-            // would show a version the player is not playing yet, and would
-            // make the switch look finished before it had begun.
-            if (!holdUntilAligned ||
-                VersionAudioAligner.getCachedOffsetMs(song.videoId, target.videoId) != null
-            ) {
-                optimisticVersionSong = target
-            }
-            // Released before the handover for the same reason as the
-            // music-only path above: the service owns the flag from here, and
-            // the finally only exists for the paths that never send.
-            if (holdUntilAligned) AppSettings.versionAlignmentInProgress.value = false
-            c.swapToVersion(target)
-        } finally {
-            if (holdUntilAligned) AppSettings.versionAlignmentInProgress.value = false
-            switchingAudioVersion = false
-        }
-    }
-
     val playFrom: (List<Song>, Int, QueueSource) -> Unit = playFrom@{ allSongs, allIndex, source ->
         // A Spotify page lists songs it has not found on YouTube Music yet (or
         // never will); those can't be queued, so play the rest in their order.
@@ -1318,7 +1295,7 @@ private fun BitChordApp(
     }
     LaunchedEffect(player.song?.videoId) {
         if (optimisticVersionSong?.videoId == player.song?.videoId ||
-            (optimisticVersionSong != null && player.song?.videoId != convertedAudioId && player.song?.videoId != convertedVideoId && player.song?.videoId != keepVideoId)
+            (optimisticVersionSong != null && player.song?.videoId != convertedAudioId && player.song?.videoId != keepVideoId)
         ) {
             optimisticVersionSong = null
         }
@@ -1327,11 +1304,6 @@ private fun BitChordApp(
         if (player.song?.videoId != convertedAudioId) {
             convertedFromVideo = null
             convertedAudioId = null
-            switchingAudioVersion = false
-        }
-        if (player.song?.videoId != convertedVideoId) {
-            convertedFromAudio = null
-            convertedVideoId = null
             switchingAudioVersion = false
         }
     }
@@ -1352,14 +1324,13 @@ private fun BitChordApp(
     // each member on their own cut of what is supposed to be one song — see
     // [ListenTogether] and the matching guard server-side in
     // [PlaybackService.smoothSwapCurrentTrackVersion].
-    LaunchedEffect(player.song?.videoId, convertedAudioId, convertedVideoId, partyState.inParty) {
+    LaunchedEffect(player.song?.videoId, convertedAudioId, partyState.inParty) {
         val song = player.song
         if (song == null || partyState.inParty) {
             hasAlternateVersion = false
             return@LaunchedEffect
         }
-        if ((convertedFromVideo != null && convertedAudioId == song.videoId) ||
-            (convertedFromAudio != null && convertedVideoId == song.videoId)) {
+        if (convertedFromVideo != null && convertedAudioId == song.videoId) {
             hasAlternateVersion = true
             return@LaunchedEffect
         }
@@ -1370,11 +1341,7 @@ private fun BitChordApp(
                     val resolved = YtMusicRepository.resolveAudio(song)
                     resolved.videoId != song.videoId
                 }.getOrDefault(false)
-            } else {
-                runCatching {
-                    YtMusicRepository.resolveVideo(song) != null
-                }.getOrDefault(false)
-            }
+            } else false
         }
         if (player.song?.videoId == song.videoId) {
             hasAlternateVersion = exists
@@ -1578,6 +1545,14 @@ private fun BitChordApp(
         type: BrowseType,
         artwork: String? = null,
     ) {
+        if (BuildConfig.NAVIDROME_MODE && type == BrowseType.ARTIST) {
+            viewModel.openNavidromeArtistByName(
+                name = name,
+                subtitle = subtitle.orEmpty(),
+                thumbnailUrl = artwork,
+            )
+            return
+        }
         if (browseId != null) {
             val credit = subtitle ?: context.getString(
                 if (type == BrowseType.ARTIST) R.string.artist else R.string.album,
@@ -1921,6 +1896,10 @@ private fun BitChordApp(
     // card opens the same way from either.
     val onLibraryItemClick: (ShelfItem) -> Unit = { item ->
         item.browseId?.let { id ->
+            if (id == NAVIDROME_ARTISTS_BROWSE_ID || id == NAVIDROME_ALBUMS_BROWSE_ID) {
+                navidromeLibraryCollection = id
+                return@let
+            }
             if (id == SPOTIFY_BROWSE_ID) {
                 showSpotify = true
                 return@let
@@ -2160,7 +2139,7 @@ private fun BitChordApp(
     // mounts it so the sheet's own setup reads on its own.
     val nowPlaying: @Composable (Song) -> Unit = { song ->
         val effectiveSong = optimisticVersionSong?.takeIf {
-            it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId ||
+            it.videoId == convertedAudioId || it.videoId == keepVideoId ||
             it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
             it.videoId == YtMusicRepository.cachedVideoVersion(song.videoId)?.videoId
         } ?: song
@@ -2477,10 +2456,13 @@ private fun BitChordApp(
             showEqualizer = false
             if (settingsSubScreen == "equalizer") settingsSubScreen = null
         }
+        BackHandler(enabled = settingsSubScreen == "navidrome") {
+            settingsSubScreen = null
+        }
         // One back step out of Settings, or out of any tab but Home, lands on
         // Home rather than exiting — only Home itself hands back to the system,
         // which is what actually closes/minimizes the app.
-        BackHandler(enabled = showSettings && !showSpotify && !showAccountScrobbling && !showSources && !showListenTogether && !showEqualizer && !showReplay) {
+        BackHandler(enabled = showSettings && settingsSubScreen == null && !showSpotify && !showAccountScrobbling && !showSources && !showListenTogether && !showEqualizer && !showReplay) {
             showSettings = false
             // Only when Settings was the whole of what was on screen. Opened
             // over Replay or over a release page, closing it reveals that again
@@ -2504,6 +2486,7 @@ private fun BitChordApp(
         // Disabled while a detail page is open over the grid: that one's own
         // BackHandler below has to close first, or back would skip past it
         // straight to Library. See [onLibraryItemClick].
+        BackHandler(enabled = navidromeLibraryCollection != null && detail == null) { navidromeLibraryCollection = null }
         BackHandler(enabled = libraryShowAll != null && detail == null) { libraryShowAll = null }
         BackHandler(enabled = detailActiveShelf != null) { detailActiveShelf = null }
 
@@ -2519,6 +2502,7 @@ private fun BitChordApp(
                         showSpotify && detail == null -> "spotify"
                         showDiscord -> "discord"
                         showHistory -> "history"
+                        navidromeLibraryCollection != null && detail == null -> "navidrome_library_collection"
                         // `&& detail == null`: a card opened from the grid
                         // stacks a detail page over it exactly as one opened
                         // from the Library tab does — see
@@ -2638,6 +2622,22 @@ private fun BitChordApp(
                             onRetry = viewModel::loadHistory,
                             contentPadding = listPadding,
                         )
+                    } else if (key == "navidrome_library_collection") {
+                        val collection = navidromeLibraryCollection
+                        val page = (libraryState as? UiState.Success)?.data
+                        val artists = collection == NAVIDROME_ARTISTS_BROWSE_ID
+                        val title = if (artists) context.getString(R.string.artists) else context.getString(R.string.albums)
+                        val items = page?.shelves
+                            ?.firstOrNull { it.title == title }
+                            ?.items
+                            .orEmpty()
+                        NavidromeLibraryCollectionScreen(
+                            title = title,
+                            items = items,
+                            artists = artists,
+                            onItemClick = onLibraryItemClick,
+                            contentPadding = listPadding,
+                        )
                     } else if (key == "library_show_all") {
                         libraryShowAll?.let { shelf ->
                             LibraryGridPage(
@@ -2658,7 +2658,7 @@ private fun BitChordApp(
                     } else if (key == "replay") {
                         ReplayScreen(
                             state = replay,
-                            holder = account?.name.orEmpty(),
+                            holder = replayHolder,
                             onPeriodChange = setReplayPeriod,
                             onOpenStory = { replayStory = it },
                             // A track tapped on a chart is one the user already
@@ -2709,7 +2709,7 @@ private fun BitChordApp(
                     } else if (key == "account_scrobbling") {
                         AccountAndScrobblingScreen(
                             signedIn = signedIn,
-                            account = account,
+                            account = settingsAccount,
                             channelName = selectedChannelName,
                             onSignIn = {
                                 showAccountScrobbling = false
@@ -2758,12 +2758,13 @@ private fun BitChordApp(
                         SettingsScreen(
                             windowWidth = windowWidth,
                             signedIn = signedIn,
-                            account = account,
+                            account = settingsAccount,
                             onSignIn = {
                                 showSettings = false
                                 webSession = WebSessionMode.SIGN_IN
                             },
                             onSignOut = { viewModel.signOut() },
+                            onNavidrome = { settingsSubScreen = "navidrome" },
                             onAccountScrobbling = {
                                 settingsSubScreen = "account_scrobbling"
                                 showAccountScrobbling = true
@@ -2950,6 +2951,23 @@ private fun BitChordApp(
                                     downloadId = downloadIdFor(page.browseId),
                                 )
                             },
+                            onDownloadArtist = if (
+                                BuildConfig.NAVIDROME_MODE && page.type == BrowseType.ARTIST
+                            ) {
+                                { songs ->
+                                    startDownload(
+                                        songs,
+                                        DownloadTarget(
+                                            id = page.browseId,
+                                            title = page.title,
+                                            subtitle = page.subtitle,
+                                            thumbnailUrl = page.thumbnailUrl,
+                                        ),
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                             onArtistClick = { id, name ->
                                 viewModel.openDetail(id, name, "Artist", null, BrowseType.ARTIST)
                             },
@@ -2957,7 +2975,7 @@ private fun BitChordApp(
                             // Saving is an account action, so it isn't offered to a
                             // guest at all — same as the like and add-to-playlist rows
                             // in the track menu.
-                            onToggleLibrary = if (signedIn) {
+                            onToggleLibrary = if (signedIn && !BuildConfig.NAVIDROME_MODE) {
                                 { viewModel.toggleLibrary(page.browseId) }
                             } else {
                                 null
@@ -2965,14 +2983,14 @@ private fun BitChordApp(
                             // Same rule for the artist page's subscribe circle:
                             // a channel subscription is the account's, so a
                             // guest is never shown the button.
-                            onToggleSubscription = if (signedIn) {
+                            onToggleSubscription = if (signedIn && !BuildConfig.NAVIDROME_MODE) {
                                 { viewModel.toggleSubscription(page.browseId) }
                             } else {
                                 null
                             },
                             releaseLibrary = releaseLibrary,
                             onLoadReleaseLibrary = viewModel::loadReleaseLibrary,
-                            onToggleReleaseLibrary = if (signedIn) {
+                            onToggleReleaseLibrary = if (signedIn && !BuildConfig.NAVIDROME_MODE) {
                                 viewModel::toggleReleaseLibrary
                             } else {
                                 null
@@ -2988,7 +3006,14 @@ private fun BitChordApp(
                             isPlaying = player.isPlaying,
                             title = stringResource(R.string.listen_now),
                             signedIn = signedIn,
-                            onSignIn = { webSession = WebSessionMode.SIGN_IN },
+                            onSignIn = {
+                                if (BuildConfig.NAVIDROME_MODE) {
+                                    settingsSubScreen = null
+                                    showSettings = true
+                                } else {
+                                    webSession = WebSessionMode.SIGN_IN
+                                }
+                            },
                             onItemClick = { item, shelfTitle ->
                                 val song = shelfSong(item)
                                 // Hoisted because ShelfItem lives in :shared, and
@@ -3054,9 +3079,9 @@ private fun BitChordApp(
                             state = exploreState,
                             listState = exploreListState,
                             onCategoryClick = viewModel::openMoodGenre,
-                            onRetry = viewModel::loadExplore,
-                            refreshing = MainViewModel.Feed.EXPLORE in refreshing,
-                            onRefresh = { viewModel.refresh(MainViewModel.Feed.EXPLORE) },
+                            onRetry = {},
+                            refreshing = false,
+                            onRefresh = {},
                             pullState = explorePull,
                             contentPadding = listPadding,
                         )
@@ -3067,6 +3092,16 @@ private fun BitChordApp(
                             currentSong = player.song,
                             isPlaying = player.isPlaying,
                             onFilterChange = viewModel::onFilterChange,
+                            availableFilters = if (BuildConfig.NAVIDROME_MODE) {
+                                listOf(
+                                    SearchFilter.ALL,
+                                    SearchFilter.SONGS,
+                                    SearchFilter.ALBUMS,
+                                    SearchFilter.ARTISTS,
+                                )
+                            } else {
+                                SearchFilter.entries
+                            },
                             results = results,
                             loadingMore = searchLoadingMore,
                             onLoadMore = viewModel::loadMoreSearchResults,
@@ -3085,7 +3120,11 @@ private fun BitChordApp(
                                         artworkUrl = song.thumbnailUrl,
                                         entityType = EntityType.TRACK,
                                     ))
-                                    playRadio(song, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                    if (AppSettings.meteredConnection.value == null) {
+                                        playFrom(songs, index, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                    } else {
+                                        playRadio(song, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                    }
                                 }
                             },
                             onSongLongPress = openSongMenu,
@@ -3098,7 +3137,11 @@ private fun BitChordApp(
                                     artworkUrl = song.thumbnailUrl,
                                     entityType = EntityType.TRACK,
                                 ))
-                                playRadio(song, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                if (AppSettings.meteredConnection.value == null) {
+                                    playFrom(listOf(song), 0, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                } else {
+                                    playRadio(song, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
+                                }
                             },
                             onTopResultPlaylist = { song ->
                                 viewModel.recordEntity(SearchHistoryEntity(
@@ -3110,6 +3153,16 @@ private fun BitChordApp(
                                 ))
                                 viewModel.loadPlaylists()
                                 playlistTarget = song
+                            },
+                            onTopResultQueue = { song ->
+                                viewModel.recordEntity(SearchHistoryEntity(
+                                    id = song.videoId,
+                                    title = song.title,
+                                    subtitle = song.artist.ifEmpty { "" },
+                                    artworkUrl = song.thumbnailUrl,
+                                    entityType = EntityType.TRACK,
+                                ))
+                                addToQueue(song)
                             },
                             onBrowseClick = { item ->
                                 viewModel.recordEntity(SearchHistoryEntity(
@@ -3151,6 +3204,7 @@ private fun BitChordApp(
                             history = searchHistory,
                             suggestions = searchSuggestions,
                             typeaheadResults = viewModel.typeaheadResults.collectAsStateWithLifecycle().value,
+                            unavailableSongIds = viewModel.offlineUnavailableSongIds.collectAsStateWithLifecycle().value,
                             onSubmit = viewModel::submitSearch,
                             // Suggestions land in search history via searchFor → recordSearch.
                             // History items (onHistoryClick) navigate/play without re-logging.
@@ -3178,6 +3232,16 @@ private fun BitChordApp(
                                             title = entity.title,
                                             subtitle = entity.subtitle,
                                             thumbnailUrl = entity.artworkUrl,
+                                            // A saved-history row only persists its entity kind;
+                                            // passing it on is essential for an artist page to
+                                            // initialise its Apple hero/logo/video lookup before
+                                            // the Navidrome request has completed.
+                                            type = when (entity.entityType) {
+                                                EntityType.ALBUM -> BrowseType.ALBUM
+                                                EntityType.ARTIST -> BrowseType.ARTIST
+                                                EntityType.PLAYLIST -> BrowseType.PLAYLIST
+                                                EntityType.TRACK -> BrowseType.OTHER
+                                            },
                                         )
                                     }
                                 }
@@ -3189,9 +3253,9 @@ private fun BitChordApp(
                             topPadding = topBarContentPadding(),
                             // The field is in the top bar; see the bar's accessory.
                             showField = false,
-                            // The settings page's own two-state selector, so the
-                            // app has one look for "pick one of these".
-                            sourceSwitcher = {
+                            // Navidrome has one catalogue: its own library.
+                            // Keep the old selector only for the YouTube build.
+                            sourceSwitcher = if (BuildConfig.NAVIDROME_MODE) null else ({
                                 SegmentedControl(
                                     options = listOf(
                                         stringResource(R.string.search_source_youtube),
@@ -3200,8 +3264,8 @@ private fun BitChordApp(
                                     selectedIndex = searchSource.ordinal,
                                     onSelect = { index -> onSearchSourceChange(SearchSource.entries[index]) },
                                 )
-                            },
-                            searchingLibrary = searchSource == SearchSource.LIBRARY,
+                            }),
+                            searchingLibrary = searchSource == SearchSource.LIBRARY && !BuildConfig.NAVIDROME_MODE,
                             libraryResults = libraryResults,
                             // The same queue opening the Local Music folder and
                             // tapping the row there would give.
@@ -3234,7 +3298,7 @@ private fun BitChordApp(
                                 LibraryReplayEntry(
                                     cards = replayCards,
                                     loading = replay.loading,
-                                    holder = account?.name.orEmpty(),
+                                    holder = replayHolder,
                                     memberSince = replay.memberSince,
                                     onOpenReplay = { page ->
                                         replayLandingPage = page
@@ -3242,13 +3306,33 @@ private fun BitChordApp(
                                     },
                                 )
                             },
-                            onSignIn = { webSession = WebSessionMode.SIGN_IN },
+                            onSignIn = {
+                                if (BuildConfig.NAVIDROME_MODE) {
+                                    settingsSubScreen = null
+                                    showSettings = true
+                                } else {
+                                    webSession = WebSessionMode.SIGN_IN
+                                }
+                            },
                             onRetry = viewModel::loadLibrary,
                             refreshing = MainViewModel.Feed.LIBRARY in refreshing,
                             onRefresh = { viewModel.refresh(MainViewModel.Feed.LIBRARY) },
                             pullState = libraryPull,
                             contentPadding = listPadding,
-                            links = libraryLinks(),
+                            links = if (BuildConfig.NAVIDROME_MODE) {
+                                // Navidrome's Library is deliberately one
+                                // concise list: Downloads, Liked songs,
+                                // Artists and Albums — no dormant Local Music
+                                // or unrelated source folders in between.
+                                libraryLinks().take(1) + navidromeCollectionLinks
+                            } else {
+                                libraryLinks()
+                            },
+                            hiddenShelfTitles = if (BuildConfig.NAVIDROME_MODE) {
+                                setOf(context.getString(R.string.artists), context.getString(R.string.albums))
+                            } else {
+                                emptySet()
+                            },
                             deviceItems = libraryDeviceItems(downloadedReleases) + localPlaylistItems,
                         )
                     }
@@ -3267,6 +3351,17 @@ private fun BitChordApp(
                 // Discord (pushed over Account) was covered by the page it opened
                 // from — hence skipped while it is up.
                 when (settingsSubScreen.takeUnless { showDiscord || showSpotify }) {
+                    "navidrome" -> {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background,
+                        ) {
+                            NavidromeSettingsScreen(
+                                contentPadding = listPadding,
+                                onForceSynchronization = { viewModel.loadHome() },
+                            )
+                        }
+                    }
                     "account_scrobbling" -> {
                         Surface(
                             modifier = Modifier.fillMaxSize(),
@@ -3274,7 +3369,7 @@ private fun BitChordApp(
                         ) {
                             AccountAndScrobblingScreen(
                                 signedIn = signedIn,
-                                account = account,
+                                account = settingsAccount,
                                 channelName = selectedChannelName,
                                 onSignIn = {
                                     settingsSubScreen = null
@@ -3347,7 +3442,7 @@ private fun BitChordApp(
                             ) {
                                 ReplayScreen(
                                     state = replay,
-                                    holder = account?.name.orEmpty(),
+                                    holder = replayHolder,
                                     onPeriodChange = setReplayPeriod,
                                     onOpenStory = { replayStory = it },
                                     onPlaySong = { song ->
@@ -3425,7 +3520,10 @@ private fun BitChordApp(
                         showSpotify && detail == null -> stringResource(R.string.spotify)
                         showDiscord -> "Discord"
                         showHistory -> stringResource(R.string.history)
+                        navidromeLibraryCollection == NAVIDROME_ARTISTS_BROWSE_ID -> stringResource(R.string.artists)
+                        navidromeLibraryCollection == NAVIDROME_ALBUMS_BROWSE_ID -> stringResource(R.string.albums)
                         libraryShowAll != null && detail == null -> libraryShowAll?.title.orEmpty()
+                        settingsSubScreen == "navidrome" -> stringResource(R.string.navidrome)
                         showAccountScrobbling -> stringResource(R.string.account_scrobbling)
                         showSources -> stringResource(R.string.sources)
                         showListenTogether -> stringResource(R.string.listen_together)
@@ -3451,6 +3549,7 @@ private fun BitChordApp(
                         showSettings || showAccountScrobbling || showSources || showListenTogether ||
                             showEqualizer ||
                             showDiscord || showHistory ||
+                            navidromeLibraryCollection != null ||
                             (libraryShowAll != null && detail == null) ||
                             (detail != null && detailActiveShelf != null) ||
                             selectedMoodGenre != null -> true
@@ -3466,6 +3565,7 @@ private fun BitChordApp(
                         showSpotify && detail == null -> ({ showSpotify = false })
                         showDiscord -> ({ showDiscord = false })
                         showHistory -> ({ showHistory = false })
+                        navidromeLibraryCollection != null -> ({ navidromeLibraryCollection = null })
                         libraryShowAll != null && detail == null -> ({ libraryShowAll = null })
                         showAccountScrobbling -> ({ showAccountScrobbling = false })
                         showSources -> ({ showSources = false })
@@ -3483,7 +3583,7 @@ private fun BitChordApp(
                     // Only on the Search tab itself, not on anything pushed over it.
                     accessory = if (
                         selectedTab == TAB_SEARCH && detail == null && selectedMoodGenre == null &&
-                        libraryShowAll == null && !showSettings && !showAccountScrobbling &&
+                        libraryShowAll == null && navidromeLibraryCollection == null && !showSettings && !showAccountScrobbling &&
                         !showSources && !showListenTogether && !showEqualizer && !showDiscord &&
                         !showHistory && !showReplay
                     ) {
@@ -3598,7 +3698,7 @@ private fun BitChordApp(
                             // Left of the account photo, and only on Library itself:
                             // a history is a record of what was played, which reads
                             // as that tab's business rather than every tab's.
-                            if (!showHistory && !showReplay && !showDiscord && libraryShowAll == null &&
+                            if (!BuildConfig.NAVIDROME_MODE && !showHistory && !showReplay && !showDiscord && libraryShowAll == null &&
                                 detail == null && selectedTab == TAB_LIBRARY
                             ) {
                                 IconButton(
@@ -3696,14 +3796,19 @@ private fun BitChordApp(
                             // itself rather than being told.
                             TopBarDownloadButton(onClick = { showDownloadManager = true })
                             TopBarAccountButton(
-                                account = account,
+                                account = settingsAccount,
                                 onClick = {
-                                    if (signedIn) {
+                                    if (BuildConfig.NAVIDROME_MODE) {
+                                        settingsSubScreen = null
+                                        showSettings = true
+                                    } else if (signedIn) {
                                         viewModel.loadChannels()
                                         showAccountSelector = true
                                     } else showSettings = true
                                 },
-                                onSwipeProfile = { forward -> viewModel.stepProfile(forward) },
+                                onSwipeProfile = if (BuildConfig.NAVIDROME_MODE) null else { forward ->
+                                    viewModel.stepProfile(forward)
+                                },
                             )
                         }
                     },
@@ -3997,7 +4102,7 @@ private fun BitChordApp(
                 ) {
                     ReplayShareSheet(
                         summary = summary,
-                        holder = account?.name.orEmpty(),
+                        holder = replayHolder,
                         memberSince = replay.memberSince,
                         page = replaySharePage,
                         onDismiss = { showReplayShare = false },
@@ -4034,62 +4139,26 @@ private fun BitChordApp(
                 val art = song.thumbnailUrl.takeUnless { type == BrowseType.ARTIST }
                 viewModel.openDetail(id, title, sub, art, type)
             }
-            // Video vs audio, moved here from the player's own controls: it is
-            // the same kind of choice as Revert to original / Upgrade
-            // quality just above it — which recording is playing — so it now
-            // sits in the same list rather than as a control of its own.
-            //
-            // Mirrors what the pill used to compute, keyed to this sheet's
-            // own [song] rather than a `nowPlaying` lambda parameter: an
-            // in-flight optimistic swap is still read off [optimisticVersionSong]
-            // so a menu opened mid-switch describes the version actually
-            // becoming current, not the one about to be left.
+            // Converting a music video to its audio release is a player-only
+            // action. The reverse conversion has deliberately been removed.
             val versionEffectiveSong = optimisticVersionSong?.takeIf {
-                it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId ||
-                    it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
-                    it.videoId == YtMusicRepository.cachedVideoVersion(song.videoId)?.videoId
+                it.videoId == convertedAudioId || it.videoId == keepVideoId ||
+                    it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId
             } ?: song
             fun versionAlignmentPending(targetId: String): Boolean =
                 AppSettings.smartVersionAlignment.value &&
                     VersionAudioAligner.getCachedOffsetMs(song.videoId, targetId) == null
-            val menuIsAudioVersion = if (optimisticVersionSong != null) {
-                !optimisticVersionSong!!.isVideo
-            } else {
-                !song.isVideo && convertedVideoId != song.videoId
-            }
             val onToggleVersion: (() -> Unit)? = if (fromPlayer &&
                 hasAlternateVersion &&
+                (versionEffectiveSong.isVideo || song.isVideo) &&
                 !switchingAudioVersion &&
                 controller?.currentMediaItem?.mediaId == song.videoId
             ) {
                 {
                     songActions = null
                     val c = controller
-                    val original = convertedFromVideo
-                    val originalAudio = convertedFromAudio
                     when {
                         c == null -> Unit
-                        original != null && (
-                            convertedAudioId == song.videoId ||
-                                convertedAudioId == versionEffectiveSong.videoId ||
-                                convertedAudioId == optimisticVersionSong?.videoId
-                            ) -> {
-                            keepVideoId = original.videoId
-                            convertedFromVideo = null
-                            convertedAudioId = null
-                            if (!versionAlignmentPending(original.videoId)) optimisticVersionSong = original
-                            c.swapToVersion(original)
-                        }
-                        originalAudio != null && (
-                            convertedVideoId == song.videoId ||
-                                convertedVideoId == versionEffectiveSong.videoId ||
-                                convertedVideoId == optimisticVersionSong?.videoId
-                            ) -> {
-                            convertedFromAudio = null
-                            convertedVideoId = null
-                            if (!versionAlignmentPending(originalAudio.videoId)) optimisticVersionSong = originalAudio
-                            c.swapToVersion(originalAudio)
-                        }
                         versionEffectiveSong.isVideo || song.isVideo -> {
                             val cached = YtMusicRepository.cachedAudioVersion(song.videoId)
                                 ?: YtMusicRepository.cachedAudioVersion(versionEffectiveSong.videoId)
@@ -4108,23 +4177,7 @@ private fun BitChordApp(
                             }
                             scope.launch { switchToMusicOnly(song, pauseWhileResolving = false) }
                         }
-                        else -> {
-                            val cached = YtMusicRepository.cachedVideoVersion(song.videoId)
-                                ?: YtMusicRepository.cachedVideoVersion(versionEffectiveSong.videoId)
-                            if (cached != null && cached.videoId != song.videoId &&
-                                !versionAlignmentPending(cached.videoId)
-                            ) {
-                                optimisticVersionSong = cached.copy(
-                                    queueTier = song.queueTier,
-                                    queueEntryId = song.queueEntryId,
-                                    radioName = song.radioName,
-                                    playbackSource = song.playbackSource,
-                                    playbackSourceType = song.playbackSourceType,
-                                    playbackSourceId = song.playbackSourceId,
-                                )
-                            }
-                            scope.launch { switchToVideo(song, pauseWhileResolving = false) }
-                        }
+                        else -> Unit
                     }
                 }
             } else {
@@ -4146,7 +4199,9 @@ private fun BitChordApp(
                 likeStatus = likeStatuses[song.videoId] ?: LikeStatus.INDIFFERENT,
                 onPlayNext = { playNext(song); songActions = null },
                 onAddToQueue = { addToQueue(song); songActions = null },
-                onStartRadio = { startRadio(song); songActions = null },
+                onStartRadio = if (BuildConfig.NAVIDROME_MODE) null else {
+                    { startRadio(song); songActions = null }
+                },
                 // Stays open: the row it replaces itself with is the
                 // progress, and closing the sheet would hide the only
                 // answer to "did that work?".
@@ -4168,17 +4223,19 @@ private fun BitChordApp(
                 // The sheet stays up for a rating: it shows the new state
                 // in place, and people often thumb a song and then queue it.
                 onToggleLike = { viewModel.toggleLike(song.videoId) },
-                onToggleDislike = {
-                    val previousStatus = viewModel.toggleDislike(song.videoId)
-                    if (
-                        previousStatus != null &&
-                        shouldSkipAfterDislike(
-                            previousStatus = previousStatus,
-                            targetVideoId = song.videoId,
-                            currentVideoId = player.song?.videoId,
-                        )
-                    ) {
-                        controller?.seekToNextMediaItem()
+                onToggleDislike = if (BuildConfig.NAVIDROME_MODE) null else {
+                    {
+                        val previousStatus = viewModel.toggleDislike(song.videoId)
+                        if (
+                            previousStatus != null &&
+                            shouldSkipAfterDislike(
+                                previousStatus = previousStatus,
+                                targetVideoId = song.videoId,
+                                currentVideoId = player.song?.videoId,
+                            )
+                        ) {
+                            controller?.seekToNextMediaItem()
+                        }
                     }
                 },
                 onAddToPlaylist = {
@@ -4265,7 +4322,7 @@ private fun BitChordApp(
                 },
                 upgradeQualityInProgress = fromPlayer && song.videoId in qualityUpgradesInFlight,
                 onToggleAudioVersion = onToggleVersion,
-                isAudioVersion = menuIsAudioVersion,
+                isAudioVersion = !versionEffectiveSong.isVideo,
                 // Hidden outright when there's no real YouTube id behind
                 // this row to build a link from — SongActionsSheet already
                 // drops it for a local file via `isOffline`, this catches

@@ -78,7 +78,10 @@ fun ReorderPlaylistSheet(
 ) {
     val original = (entries as? UiState.Success)?.data.orEmpty()
     val order = remember(original) { mutableStateListOf<Song>().apply { addAll(original) } }
-    val changed = order.map { it.setVideoId } != original.map { it.setVideoId }
+    // YouTube rows have a set-video id, while Navidrome rows only have their
+    // canonical media id. Comparing setVideoId alone makes every Navidrome
+    // reorder look unchanged and disables Save after a drag.
+    val changed = order.map(::reorderIdentity) != original.map(::reorderIdentity)
 
     Column(modifier.fillMaxWidth().navigationBarsPadding()) {
         Row(
@@ -139,6 +142,8 @@ fun ReorderPlaylistSheet(
         }
     }
 }
+
+private fun reorderIdentity(song: Song): String = song.setVideoId ?: song.videoId
 
 /**
  * The drag itself, over a lazy list so a playlist of hundreds of tracks

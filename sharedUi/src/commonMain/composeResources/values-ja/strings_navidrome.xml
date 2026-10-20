@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_queue">キューに追加</string>
+    <string name="top_result">上位の結果</string>
+    <string name="artist">アーティスト</string>
+    <string name="album">アルバム</string>
+    <string name="explore_under_construction">工事中ですので、また後で来てください。</string>
+</resources>

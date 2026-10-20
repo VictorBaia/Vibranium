@@ -7,31 +7,31 @@
   one-row cell is anywhere from ~60dp to over 100dp tall depending on the
   launcher, and a capsule stretched to the taller end stops reading as one.
   Its height is the cover plus an even 7dp all round, so the text column is
-  sized to fit inside the cover's 64dp: a 19dp title over a 38dp button row.
+  sized to fit inside the cover’s 64dp: a 19dp title over a 38dp button row.
 
   The title sits directly on the button row, with no gap: the glyphs are
   padded inside their 38dp squares, so the air between the two lines comes
   from the buttons themselves, and any margin on top made the capsule look
   loose below the buttons and tight above the title.
-  The column's 4dp top margin evens out the ink: each glyph leaves ~11dp of
-  its button empty below it, the title's ink starts ~3dp into its line, so a
+  The column’s 4dp top margin evens out the ink: each glyph leaves ~11dp of
+  its button empty below it, the title’s ink starts ~3dp into its line, so a
   column centred by its boxes sat high. In a centre_vertical LinearLayout a
   margin moves the child by its full amount, not half.
 
   The body is the cover itself, blurred to colour and darkened a little, the way
-  the player's lyrics and queue stand on it. RemoteViews can't blur, so it is a
-  bitmap MediaWidgetArt.pill bakes at the capsule's exact size; widget_pill_bg
+  the player’s lyrics and queue stand on it. RemoteViews can’t blur, so it is a
+  bitmap MediaWidgetArt.pill bakes at the capsule’s exact size; widget_pill_bg
   shows it. Until it arrives, the translucent capsule stands in.
 
   The buttons are fixed squares spread by equal spacers, not weighted cells.
   Weighted, each button was a fifth of the row wide — the ripple became an oval,
   the first glyph sat well in from where the title starts and the last well in
-  from the capsule's edge. As squares the row runs flush from the title's left
-  edge to the capsule's right padding.
+  from the capsule’s edge. As squares the row runs flush from the title’s left
+  edge to the capsule’s right padding.
   The spacers are empty FrameLayouts because a RemoteViews refuses to inflate
-  a plain View — the launcher shows "Couldn't add widget" instead.
+  a plain View — the launcher shows "Couldn’t add widget" instead.
 
-  Each glyph gets its own padding because the drawables don't share an optical
+  Each glyph gets its own padding because the drawables don’t share an optical
   size: the heart and shuffle fill most of their 24-unit box, the transport
   glyphs barely half of it. Equal padding made the heart look large and
   previous/next look small; these numbers make them read as one set.
@@ -86,8 +86,8 @@
                 android:orientation="vertical">
 
                 <!--
-                  Inset by the heart's own inset inside its button (9dp of padding
-                  plus the glyph's side bearing), so the text starts exactly above
+                  Inset by the heart’s own inset inside its button (9dp of padding
+                  plus the glyph’s side bearing), so the text starts exactly above
                   the heart rather than to the left of it.
                 -->
                 <TextView

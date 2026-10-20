@@ -29,6 +29,8 @@ import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +59,8 @@ import coil3.compose.AsyncImage
 import com.music.bitchord.R
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeIds
 import com.music.bitchord.download.DownloadProgress
 import com.music.bitchord.download.DownloadSession
 import com.music.bitchord.download.Downloads
@@ -273,6 +277,8 @@ fun DownloadManagerSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
                 DownloadManagerRow(
                     item = item,
                     onCancel = { Downloads.cancel(item.videoId) },
+                    onPause = { Downloads.pause(item.videoId) },
+                    onResume = { Downloads.resume(item.videoId) },
                     onRetry = { Downloads.enqueue(context, item.song, item.from) },
                 )
             }
@@ -286,6 +292,8 @@ fun DownloadManagerSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
 private fun DownloadManagerRow(
     item: DownloadSession.Item,
     onCancel: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onRetry: () -> Unit,
 ) {
     val progress = item.progress
@@ -381,6 +389,7 @@ private fun DownloadManagerRow(
                         },
                     )
                 }
+                is DownloadProgress.Paused -> RowStatus(stringResource(R.string.download_paused))
                 is DownloadProgress.Done -> RowStatus(stringResource(R.string.saved_to_bitchord_folder))
                 is DownloadProgress.Failed ->
                     RowStatus(progress.reason, MaterialTheme.colorScheme.error)
@@ -392,6 +401,11 @@ private fun DownloadManagerRow(
         // finished one needs nothing at all.
         when {
             failed != null -> RowAction(Icons.Rounded.Refresh, stringResource(R.string.retry), onRetry)
+            progress is DownloadProgress.Paused ->
+                RowAction(Icons.Rounded.PlayArrow, stringResource(R.string.resume_download), onResume)
+            progress is DownloadProgress.Running &&
+                NavidromeIds.parse(item.videoId)?.entity == NavidromeEntity.SONG ->
+                RowAction(Icons.Rounded.Pause, stringResource(R.string.pause), onPause)
             !progress.settled -> RowAction(Icons.Rounded.Close, stringResource(R.string.cancel), onCancel)
             else -> Spacer(Modifier.width(36.dp))
         }

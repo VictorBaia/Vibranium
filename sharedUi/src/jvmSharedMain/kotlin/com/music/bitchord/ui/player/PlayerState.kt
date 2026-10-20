@@ -24,9 +24,12 @@ import coil3.compose.LocalPlatformContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.size.Size
 import com.music.bitchord.data.canvas.CanvasArtwork
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.model.originalArtwork
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -141,7 +144,19 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
         val attempt = attempt
         ImageRequest.Builder(context)
             .data(url)
-            .size(ART_PX)
+            // Decode the original source. ART_PX is intentionally not used
+            // here: it is the old player cap and silently downgraded native
+            // Navidrome covers before they reached the screen.
+            .size(Size.ORIGINAL)
+            // Keep the source bytes under one stable original-art key. The
+            // Navidrome fetcher uses the same canonical URI in its persistent
+            // cache, so revisiting the player is a disk hit rather than a new
+            // getCoverArt request.
+            .apply {
+                url?.let { original -> diskCacheKey("artwork:original:$original") }
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
+            }
             // What makes a retry a new request as far as Coil's model comparison
             // is concerned. Only from the second go onwards, so the ordinary
             // request stays byte-identical to the one the mesh and the palette
@@ -171,7 +186,10 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
 @Composable
 internal fun rememberPlayerArtwork(remoteArt: String?): PlayerArtwork {
     val context = LocalPlatformContext.current
-    val artUrl = remoteArt?.artworkAt(ART_PX)
+    // The full player is a primary artwork surface. Keep the original source
+    // URL here so Navidrome can return the native/original artwork instead of
+    // the bounded thumbnail variant used by rows and shelves.
+    val artUrl = remoteArt.originalArtwork()
     val art = remember(artUrl) { PlayerArtwork(artUrl, context) }
     LaunchedEffect(artUrl, art.failed) {
         // A track with no artwork at all fails immediately and would fail

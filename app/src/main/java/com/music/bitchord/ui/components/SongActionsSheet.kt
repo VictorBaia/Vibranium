@@ -40,13 +40,13 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -80,6 +80,8 @@ import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeIds
 import com.music.bitchord.data.webdav.WebDavUploads
 import com.music.bitchord.download.DownloadState
 import com.music.bitchord.download.Downloads
@@ -127,7 +129,7 @@ fun SongActionsSheet(
     likeStatus: LikeStatus,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
-    onStartRadio: () -> Unit,
+    onStartRadio: (() -> Unit)?,
     onDownload: () -> Unit,
     /**
      * Copies this track to the WebDAV server. Null hides the row — the caller
@@ -137,7 +139,7 @@ fun SongActionsSheet(
      */
     onUploadToWebDav: (() -> Unit)? = null,
     onToggleLike: () -> Unit,
-    onToggleDislike: () -> Unit,
+    onToggleDislike: (() -> Unit)?,
     onAddToPlaylist: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
@@ -249,12 +251,10 @@ fun SongActionsSheet(
             // Which recording, not which quality — a different question from
             // the row above, so it sits right under it rather than merged
             // into it, but still ahead of the divider both share.
-            onToggleAudioVersion?.let {
+            onToggleAudioVersion?.takeIf { !isAudioVersion }?.let {
                 ActionRow(
-                    icon = if (isAudioVersion) Icons.Rounded.Videocam else BitChordIcons.MusicNote,
-                    label = stringResource(
-                        if (isAudioVersion) R.string.convert_to_video else R.string.convert_to_audio,
-                    ),
+                    icon = BitChordIcons.MusicNote,
+                    label = stringResource(R.string.convert_to_audio),
                     accent = palette.accent,
                     onClick = it,
                 )
@@ -270,13 +270,15 @@ fun SongActionsSheet(
                 accent = palette.accent,
                 onClick = onToggleLike,
             )
-            ActionRow(
-                icon = if (disliked) Icons.Rounded.ThumbDown else Icons.Rounded.ThumbDownOffAlt,
-                label = if (disliked) stringResource(R.string.undo_dislike) else stringResource(R.string.dislike),
-                tint = if (disliked) palette.accent else null,
-                accent = palette.accent,
-                onClick = onToggleDislike,
-            )
+            onToggleDislike?.let {
+                ActionRow(
+                    icon = if (disliked) Icons.Rounded.ThumbDown else Icons.Rounded.ThumbDownOffAlt,
+                    label = if (disliked) stringResource(R.string.undo_dislike) else stringResource(R.string.dislike),
+                    tint = if (disliked) palette.accent else null,
+                    accent = palette.accent,
+                    onClick = it,
+                )
+            }
             ActionRow(
                 icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                 label = stringResource(R.string.add_to_playlist),
@@ -296,12 +298,14 @@ fun SongActionsSheet(
 
         DownloadRow(song, palette, isOffline, onDownload)
         WebDavUploadRow(song, palette, isOffline, onUploadToWebDav)
-        ActionRow(
-            icon = Icons.Rounded.Radio,
-            label = stringResource(R.string.start_radio),
-            accent = palette.accent,
-            onClick = onStartRadio,
-        )
+        onStartRadio?.let {
+            ActionRow(
+                icon = Icons.Rounded.Radio,
+                label = stringResource(R.string.start_radio),
+                accent = palette.accent,
+                onClick = it,
+            )
+        }
         ActionRow(
             icon = Icons.AutoMirrored.Rounded.PlaylistPlay,
             label = stringResource(R.string.play_next),
@@ -562,10 +566,28 @@ private fun DownloadRow(song: Song, palette: ArtworkPalette, isOffline: Boolean,
             label = stringResource(R.string.download_notification_title),
             // Indeterminate until the first response names a length; a
             // stuck "0%" reads as broken where a bare label reads as starting.
-            value = if (state.fraction > 0f) "${(state.fraction * 100).toInt()}%" else null,
+            value = if (NavidromeIds.parse(song.videoId)?.entity == NavidromeEntity.SONG) {
+                stringResource(R.string.pause)
+            } else if (state.fraction > 0f) {
+                "${(state.fraction * 100).toInt()}%"
+            } else null,
             tint = palette.accent,
             accent = palette.accent,
-        ) { Downloads.cancel(song.videoId) }
+        ) {
+            if (NavidromeIds.parse(song.videoId)?.entity == NavidromeEntity.SONG) {
+                Downloads.pause(song.videoId)
+            } else {
+                Downloads.cancel(song.videoId)
+            }
+        }
+
+        is DownloadState.Paused -> ActionRow(
+            icon = Icons.Rounded.PlayArrow,
+            label = stringResource(R.string.download_paused),
+            value = stringResource(R.string.resume_download),
+            tint = palette.accent,
+            accent = palette.accent,
+        ) { Downloads.resume(song.videoId) }
 
         is DownloadState.Failed -> ActionRow(
             icon = Icons.Rounded.ErrorOutline,

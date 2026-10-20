@@ -106,6 +106,8 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.size.Size
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.delay
 import androidx.compose.ui.layout.layout
@@ -129,6 +131,7 @@ import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.SubscriptionState
 import com.music.bitchord.data.model.UiState
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.model.originalArtwork
 import com.music.bitchord.data.model.durationMillis
 import com.music.bitchord.data.model.isSameTrackAs
 import com.music.bitchord.data.settings.AppSettings
@@ -218,6 +221,12 @@ private const val ARTIST_LOGO_MAX_HEIGHT = 0.30f
 private const val LOGO_RETRIES = 2
 private const val LOGO_RETRY_DELAY_MS = 800L
 
+/** External artwork endpoints can briefly fail while Navidrome remains available. */
+private const val ARTIST_ART_LOOKUP_RETRIES = 2
+private const val ARTIST_ART_RETRY_DELAY_MS = 900L
+private const val ALBUM_CANVAS_LOOKUP_RETRIES = 2
+private const val ALBUM_CANVAS_RETRY_DELAY_MS = 900L
+
 private val CREDIT_SEPARATOR = Regex(""",\s|\s&\s|\s(?:x|and|feat\.?|ft\.?|with)\s""", RegexOption.IGNORE_CASE)
 
 /** Whether this reads as several artists credited together rather than one name. */
@@ -266,6 +275,8 @@ fun DetailScreen(
      * Null on the pages with no list to act on.
      */
     onMore: ((List<Song>) -> Unit)? = null,
+    /** Downloads every track exposed by a Navidrome artist page. */
+    onDownloadArtist: ((List<Song>) -> Unit)? = null,
     /**
      * Saves this release to the account's library, or takes it out —
      * [DetailPage.library] says which way round. Null hides the control
@@ -308,17 +319,27 @@ fun DetailScreen(
     val topReleaseId = if (isArtist) page.sections.topRelease()?.browseId else null
     LaunchedEffect(topReleaseId) { topReleaseId?.let { onLoadReleaseLibrary?.invoke(it) } }
     // Apple Music's hero photo and title logo for this artist, found by name.
-    // Null until (and unless) it arrives; the YouTube header stands in meanwhile.
+    // Null until (and unless) it arrives; Navidrome's artist art remains the
+    // page background meanwhile.
     var appleArt by remember(page.browseId) {
         mutableStateOf(if (isArtist) AppleArtistArtRepository.cached(page.title) else null)
     }
+    var artistArtAttempt by remember(page.browseId) { mutableIntStateOf(0) }
     // Opened from a track, the title is the whole credit ("A, B & C") until the
     // page loads and swaps in the one artist's name. Searching a credit finds
     // nobody, so a title that reads as several artists waits for that swap; any
     // other name starts the moment the page opens.
     val nameSettled = !page.title.looksLikeCredit() || page.songs !is UiState.Loading
-    LaunchedEffect(page.browseId, page.title, nameSettled) {
-        if (isArtist && nameSettled) appleArt = AppleArtistArtRepository.artFor(page.title) ?: appleArt
+    LaunchedEffect(page.browseId, page.title, nameSettled, isArtist, artistArtAttempt) {
+        if (!isArtist || !nameSettled || appleArt != null) return@LaunchedEffect
+        val resolved = AppleArtistArtRepository.cached(page.title)
+            ?: AppleArtistArtRepository.artFor(page.title)
+        if (resolved != null) {
+            appleArt = resolved
+        } else if (artistArtAttempt < ARTIST_ART_LOOKUP_RETRIES) {
+            delay(ARTIST_ART_RETRY_DELAY_MS)
+            artistArtAttempt++
+        }
     }
     val palette = rememberArtworkPalette(
         imageUrl = appleArt?.heroUrl ?: page.thumbnailUrl,
@@ -373,17 +394,32 @@ fun DetailScreen(
     // which case the tracks themselves know who it is.
     val credit = page.headerLines(songs.size).first.ifBlank { songs.firstOrNull()?.artist.orEmpty() }
     var canvas by remember(page.browseId) { mutableStateOf<CanvasArtwork?>(null) }
-    LaunchedEffect(page.browseId, page.title, credit, canvasEnabled, prioritizeSpotifyCanvas) {
+    var albumCanvasAttempt by remember(page.browseId) { mutableIntStateOf(0) }
+    LaunchedEffect(
+        page.browseId,
+        page.title,
+        credit,
+        canvasEnabled,
+        prioritizeSpotifyCanvas,
+        albumCanvasAttempt,
+    ) {
         // An artist's clip is set below, by the lookup that finds it.
         if (isArtist) return@LaunchedEffect
         if (!canvasEnabled || page.type != BrowseType.ALBUM) {
             canvas = null
             return@LaunchedEffect
         }
-        // As on the player: the credit fills in once the tracks load, so this
-        // can run twice. Keep a clip that is already playing if the second
-        // pass comes back empty.
-        canvas = CanvasRepository.canvasForAlbum(page.title, credit) ?: canvas
+        if (credit.isBlank()) return@LaunchedEffect
+        // The provider chain is external and may be temporarily unavailable.
+        // Retry a small, bounded number of times; until a frame exists,
+        // PageBackground keeps the Navidrome sleeve visible underneath.
+        val resolved = CanvasRepository.canvasForAlbum(page.title, credit)
+        if (resolved != null) {
+            canvas = resolved
+        } else if (canvas == null && albumCanvasAttempt < ALBUM_CANVAS_LOOKUP_RETRIES) {
+            delay(ALBUM_CANVAS_RETRY_DELAY_MS)
+            albumCanvasAttempt++
+        }
     }
     // An artist's clip comes with the same Apple lookup as its photograph.
     val artistVideo = appleArt?.videoUrl
@@ -434,6 +470,13 @@ fun DetailScreen(
                     artHeight = artHeight,
                     listState = listState,
                     heroUrl = appleArt?.heroUrl,
+                    // Album sleeves are a primary artwork surface. Ask
+                    // Navidrome for its best available rendition instead of
+                    // reusing the smaller artist/header size.
+                    // Album artwork is also a primary surface: preserve the
+                    // original URL so the server can return its best native
+                    // rendition. Artist headers keep their bounded variant.
+                    artPx = if (isArtist) HEADER_ART_PX else null,
                     modifier = Modifier.matchParentSize(),
                 )
 
@@ -496,6 +539,7 @@ fun DetailScreen(
                         onShuffle = { onShuffle(songs) },
                         subscription = page.subscription?.takeIf { onToggleSubscription != null },
                         onToggleSubscription = onToggleSubscription,
+                        onDownload = onDownloadArtist?.let { download -> { download(songs) } },
                         bottomSpace = 22.dp,
                         playColor = appleArt?.keyColor?.let { Color(it) },
                     )
@@ -625,9 +669,15 @@ fun DetailScreen(
                             onLongPress = { onSongLongPress(song) },
                             onSwipeToQueue = { onSongSwipe(song) },
                             rowBackground = Color.Transparent,
-                            // The track's place on the release, not its place in
-                            // what the filter — or a sort — left standing.
-                            trackNumber = originalTrackNumbers[song.videoId].takeIf { numbered },
+                            // Navidrome supplies the release's own track field.
+                            // Keep it even when a file is unavailable (1, 3,
+                            // 4 must never become 1, 2, 3); other catalogues
+                            // retain their original list-position fallback.
+                            trackNumber = if (numbered) {
+                                song.releaseTrackNumber ?: originalTrackNumbers[song.videoId]
+                            } else {
+                                null
+                            },
                             subtitleColor = palette.onBackgroundVariant,
                             downloadedTint = downloadedTint,
                             isCurrent = isCurrent,
@@ -678,8 +728,10 @@ fun DetailScreen(
                 }
             }
 
-            // Albums / Singles & EPs carousels (artist pages).
-            items(page.sections) { shelf ->
+            // Albums / Singles & EPs carousels (artist pages). They always
+            // expose "Show all", including short lists, so the three release
+            // types have the same explicit navigation affordance.
+            items(page.sections, key = { shelf -> "section:${shelf.title}" }) { shelf ->
                 val canShowAll = shelf.items.size > ARTIST_ROW_MAX_ITEMS
                 val displayItems = remember(shelf.items) {
                     if (canShowAll) shelf.items.take(ARTIST_ROW_MAX_ITEMS) else shelf.items
@@ -688,7 +740,7 @@ fun DetailScreen(
                     SectionHeading(
                         title = shelf.title,
                         palette = palette,
-                        onShowAll = if (canShowAll) { { onActiveShelfChange(shelf) } } else null,
+                        onShowAll = { onActiveShelfChange(shelf) },
                         horizontalPadding = ARTIST_CONTENT_GUTTER,
                     )
                     LazyRow(
@@ -707,6 +759,36 @@ fun DetailScreen(
                 }
             }
             if (isArtist) aboutItem()
+            // This uses the same artist shelf component as the original page,
+            // but is intentionally after About: related artists are the last
+            // destination on an artist detail screen.
+            page.relatedArtists?.takeIf { isArtist && it.items.isNotEmpty() }?.let { shelf ->
+                item(key = "related-artists") {
+                    val canShowAll = shelf.items.size > ARTIST_ROW_MAX_ITEMS
+                    val displayItems = if (canShowAll) shelf.items.take(ARTIST_ROW_MAX_ITEMS) else shelf.items
+                    Column(Modifier.padding(top = 22.dp)) {
+                        SectionHeading(
+                            title = shelf.title,
+                            palette = palette,
+                            onShowAll = { onActiveShelfChange(shelf) },
+                            horizontalPadding = ARTIST_CONTENT_GUTTER,
+                        )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = ARTIST_CONTENT_GUTTER),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            items(displayItems, key = { it.browseId ?: it.title }) { item ->
+                                SectionCard(
+                                    item = item,
+                                    palette = palette,
+                                    onClick = { onSectionItemClick(item) },
+                                    onLongPress = onSectionItemLongPress?.let { { it(item) } },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
     }
@@ -1135,14 +1217,27 @@ private fun PageBackground(
     artHeight: Dp,
     listState: LazyListState,
     heroUrl: String? = null,
+    artPx: Int? = HEADER_ART_PX,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalPlatformContext.current
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     // Not under a canvas: a still blurred over the foot of a moving clip would
     // freeze the bottom of the video into the wrong picture.
     val softenFoot = canvas == null && !reduceDynamicBlur &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val art = heroUrl ?: page.thumbnailUrl.artworkAt(HEADER_ART_PX)
+    val art = heroUrl ?: if (artPx == null) page.thumbnailUrl.originalArtwork() else page.thumbnailUrl.artworkAt(artPx)
+    val nativeArtRequest = remember(art) {
+        ImageRequest.Builder(context)
+            .data(art)
+            .size(Size.ORIGINAL)
+            .apply {
+                art?.let { original -> diskCacheKey("artwork:original:$original") }
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
+            }
+            .build()
+    }
 
     Box(modifier.clipToBounds()) {
         Box(
@@ -1152,7 +1247,7 @@ private fun PageBackground(
                 .offset { IntOffset(0, listState.headerTop(artHeight.toPx()).roundToInt()) },
         ) {
             AsyncImage(
-                model = art,
+                model = nativeArtRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -1178,7 +1273,7 @@ private fun PageBackground(
             // copy, so it is a memory-cache hit and lands on the same frame.
             if (softenFoot) {
                 AsyncImage(
-                    model = art,
+                    model = nativeArtRequest,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -1243,11 +1338,12 @@ private val SOFT_FOOT_MASK = Brush.verticalGradient(
 private val SOFT_FOOT_BLUR = 48.dp
 
 /**
- * Shuffle • Play • Star — the artist page's action row, as Apple Music lays
+ * Shuffle • Play • Download — the artist page's action row, as Apple Music lays
  * it out: a large Play circle with a small glass circle either side.
  *
- * The star is the page's existing subscribe toggle. Where the page offers none
- * (a guest) an empty slot of the same size keeps Play in the middle.
+ * The right-side control is the native download action on Navidrome artist
+ * pages; YouTube artist pages keep their existing subscribe toggle. Where
+ * neither is offered, an empty slot keeps Play in the middle.
  */
 @Composable
 private fun ActionRow(
@@ -1258,6 +1354,8 @@ private fun ActionRow(
     /** The artist header's subscribe state, or null where it isn't offered. */
     subscription: SubscriptionState? = null,
     onToggleSubscription: (() -> Unit)? = null,
+    /** Downloads the complete Navidrome artist discography. */
+    onDownload: (() -> Unit)? = null,
     /** Apple's fill for the Play circle; null leaves it white. */
     playColor: Color? = null,
 ) {
@@ -1287,8 +1385,17 @@ private fun ActionRow(
             cutout = true,
         )
 
-        if (subscription != null) {
-            CircleIconButton(
+        when {
+            onDownload != null -> CircleIconButton(
+                icon = BitChordIcons.Download,
+                contentDescription = stringResource(R.string.download_all),
+                palette = palette,
+                onClick = onDownload,
+                haptic = Haptic.Resume,
+                size = ARTIST_SIDE_BUTTON,
+                lightFill = true,
+            )
+            subscription != null -> CircleIconButton(
                 icon = if (subscription.subscribed) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 contentDescription = stringResource(
                     if (subscription.subscribed) R.string.unsubscribe else R.string.subscribe,
@@ -1299,8 +1406,7 @@ private fun ActionRow(
                 size = ARTIST_SIDE_BUTTON,
                 lightFill = true,
             )
-        } else {
-            Spacer(Modifier.size(ARTIST_SIDE_BUTTON))
+            else -> Spacer(Modifier.size(ARTIST_SIDE_BUTTON))
         }
     }
     Spacer(Modifier.height(bottomSpace))
@@ -1744,7 +1850,8 @@ private fun SuggestedSongRow(
 /**
  * The newest release on an artist's shelves — an album, or a single or EP that
  * came out after it. Playlists, videos and related artists share these shelves
- * and are skipped: only an `MPRE…` browse id is a release.
+ * and are skipped: `MPRE…` is a YouTube release and `nd:album:` is a
+ * Navidrome release.
  *
  * Newest by the year in the card's subtitle, which is all a shelf item says
  * about when. Ties and releases with no year keep YouTube's own order, which
@@ -1753,7 +1860,11 @@ private fun SuggestedSongRow(
 private fun List<HomeShelf>.topRelease(): ShelfItem? =
     asSequence()
         .flatMap { it.items.asSequence() }
-        .filter { it.browseId?.startsWith("MPRE") == true }
+        .filter {
+            it.browseId?.let { id ->
+                id.startsWith("MPRE") || id.startsWith("nd:album:")
+            } == true
+        }
         .withIndex()
         .maxWithOrNull(
             compareBy<IndexedValue<ShelfItem>> { it.value.releaseYear() ?: 0 }

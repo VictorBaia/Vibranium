@@ -35,9 +35,30 @@ fun ExplicitSongTitle(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+) {
+    ExplicitSongTitle(
+        title = song.title,
+        isExplicit = song.isExplicit,
+        style = style,
+        color = color,
+        modifier = modifier,
+        maxLines = maxLines,
+    )
+}
+
+/** The same catalogue-standard explicit title treatment for lightweight song rows. */
+@Composable
+fun ExplicitSongTitle(
+    title: String,
+    isExplicit: Boolean?,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        if (song.isExplicit == true) {
+        if (isExplicit == true) {
             Text(
                 text = "E",
                 style = MaterialTheme.typography.labelSmall,
@@ -49,10 +70,10 @@ fun ExplicitSongTitle(
             Spacer(Modifier.width(6.dp))
         }
         Text(
-            text = song.title,
+            text = title,
             style = style,
             color = color,
-            maxLines = 1,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )

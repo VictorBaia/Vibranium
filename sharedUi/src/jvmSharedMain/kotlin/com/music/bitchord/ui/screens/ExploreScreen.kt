@@ -74,46 +74,28 @@ fun ExploreScreen(
         state = pullState,
         modifier = modifier,
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val columns = moodColumns(maxWidth)
-            LazyColumn(
-                state = listState,
-                contentPadding = contentPadding,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (showTitle) {
-                    item {
-                        Text(
-                            text = stringResource(Res.string.explore),
-                            style = MaterialTheme.typography.displayLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            // 14dp under the title, the same gap Library leaves
-                            // above its first card (8dp title + 6dp Replay row).
-                            modifier = Modifier.padding(
-                                start = PAGE_GUTTER,
-                                end = PAGE_GUTTER,
-                                top = 8.dp,
-                                bottom = 14.dp,
-                            ),
-                        )
-                    }
+        LazyColumn(
+            state = listState,
+            contentPadding = contentPadding,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (showTitle) {
+                item {
+                    Text(
+                        text = stringResource(Res.string.explore),
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(
+                            start = PAGE_GUTTER,
+                            end = PAGE_GUTTER,
+                            top = 8.dp,
+                            bottom = 14.dp,
+                        ),
+                    )
                 }
-                when (state) {
-                    UiState.Loading -> item { ExploreSkeletonRows(columns) }
-                    is UiState.Error -> item {
-                        MessageState(state.message, actionLabel = stringResource(Res.string.retry), onAction = onRetry)
-                    }
-                    is UiState.Success -> {
-                        // Moods and genres read as one grid; the server's
-                        // grouping only decides the order.
-                        val rows = state.data.flatMap(MoodGenreSection::items)
-                            .distinctBy { it.browseId to it.params }
-                            .chunked(columns)
-                        items(rows, key = { row -> row.first().let { "${it.browseId}|${it.params}" } }) { row ->
-                            MoodGenreRow(row = row, columns = columns, onCategoryClick = onCategoryClick)
-                        }
-                    }
-                }
+            }
+            item {
+                MessageState(stringResource(Res.string.explore_under_construction))
             }
         }
     }

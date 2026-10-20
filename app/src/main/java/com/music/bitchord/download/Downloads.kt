@@ -9,6 +9,16 @@ import com.music.bitchord.data.DebugLog as Log
 import androidx.core.content.ContextCompat
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER
+import com.music.bitchord.data.navidrome.NAVIDROME_SOURCE_HEADER_VALUE
+import com.music.bitchord.data.navidrome.NavidromeApiResult
+import com.music.bitchord.data.navidrome.NavidromeEntity
+import com.music.bitchord.data.navidrome.NavidromeIds
+import com.music.bitchord.data.navidrome.NavidromeMediaResolver
+import com.music.bitchord.data.navidrome.NavidromeRepository
+import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.navidrome.NavidromeTranscodeProfile
+import com.music.bitchord.data.navidrome.NavidromeTranscoding
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.data.sources.SourceResolver
@@ -43,6 +53,8 @@ sealed interface DownloadState {
 
     /** [fraction] is 0f until the length is known, which is the first thing asked for. */
     data class Running(val fraction: Float) : DownloadState
+
+    data class Paused(val fraction: Float) : DownloadState
 
     data class Failed(val reason: String) : DownloadState
 }
@@ -141,6 +153,7 @@ object Downloads {
      * Guarded by [lock].
      */
     private val running = LinkedHashMap<String, Job?>()
+    private val paused = mutableSetOf<String>()
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences("bitchord_settings", Context.MODE_PRIVATE)
@@ -183,7 +196,11 @@ object Downloads {
             // dead button. A download already queued or running started on a
             // connection that allowed it and is none of this check's business.
             val inFlight = _active.value[id]
-            if (inFlight !is DownloadState.Queued && inFlight !is DownloadState.Running) {
+            if (
+                inFlight !is DownloadState.Queued &&
+                inFlight !is DownloadState.Running &&
+                inFlight !is DownloadState.Paused
+            ) {
                 DownloadSession.queued(song, from)
                 fail(id, WIFI_ONLY_REFUSAL)
             }
@@ -221,6 +238,7 @@ object Downloads {
     fun cancel(videoId: String) {
         val job = synchronized(lock) {
             pending.remove(videoId)
+            paused.remove(videoId)
             if (videoId !in running) return@synchronized null
             running.remove(videoId)
         }
@@ -230,6 +248,43 @@ object Downloads {
         // check on, so it leaves the manager rather than sitting in it as a
         // permanent "cancelled" row.
         DownloadSession.forget(videoId)
+    }
+
+    /** Pause an active Navidrome transfer without discarding its pending file. */
+    fun pause(videoId: String) {
+        if (NavidromeIds.parse(videoId)?.entity != NavidromeEntity.SONG) return
+        val fraction = (_active.value[videoId] as? DownloadState.Running)?.fraction ?: return
+        synchronized(lock) {
+            if (videoId !in running) return
+            paused += videoId
+        }
+        _active.update { it + (videoId to DownloadState.Paused(fraction)) }
+        DownloadSession.paused(videoId, fraction)
+    }
+
+    /** Resume a paused transfer; the downloader reopens with Range if its connection expired. */
+    fun resume(videoId: String) {
+        val fraction = (_active.value[videoId] as? DownloadState.Paused)?.fraction ?: return
+        synchronized(lock) { paused.remove(videoId) }
+        _active.update { it + (videoId to DownloadState.Running(fraction)) }
+        DownloadSession.running(videoId, fraction)
+    }
+
+    private suspend fun awaitUnpaused(videoId: String) {
+        while (synchronized(lock) { videoId in paused }) {
+            kotlinx.coroutines.delay(PAUSE_POLL_MS)
+        }
+    }
+
+    private fun reportProgress(videoId: String, fraction: Float) {
+        val state = if (synchronized(lock) { videoId in paused }) {
+            DownloadState.Paused(fraction)
+        } else {
+            DownloadState.Running(fraction)
+        }
+        _active.update { it + (videoId to state) }
+        if (state is DownloadState.Paused) DownloadSession.paused(videoId, fraction)
+        else DownloadSession.running(videoId, fraction)
     }
 
     // ---- The record ---------------------------------------------------------
@@ -291,6 +346,11 @@ object Downloads {
      */
     fun verifiedSavedUri(videoId: String): String? {
         val recorded = _saved.value[videoId] ?: return null
+        if (NavidromeIds.parse(videoId)?.entity == NavidromeEntity.SONG) {
+            val currentAccount = (NavidromeStore.state.value as? NavidromeStore.State.Configured)
+                ?.config?.accountKey
+            if (_savedMetadata.value[videoId]?.sourceAccountKey != currentAccount) return null
+        }
         if (!isMissingLocalFile(recorded)) return recorded
         Log.d(TAG, "$videoId was downloaded but the file is gone; forgetting it")
         forget(videoId)
@@ -576,6 +636,7 @@ object Downloads {
             uri = uri.toString(),
             downloadFormat = downloadFormat,
             dateAddedSeconds = dateAddedSeconds,
+            sourceAccountKey = navidromeAccountKey(asked.videoId),
         )
         val metaFetched = SavedSongMetadata(
             videoId = fetched.videoId,
@@ -587,6 +648,7 @@ object Downloads {
             uri = uri.toString(),
             downloadFormat = downloadFormat,
             dateAddedSeconds = dateAddedSeconds,
+            sourceAccountKey = navidromeAccountKey(fetched.videoId),
         )
         record(
             saved = { it + ids.associateWith { id -> uri.toString() } },
@@ -779,7 +841,10 @@ object Downloads {
 
     /** [videoId] is finished, one way or another, and no longer holds a worker. */
     internal fun onIdle(videoId: String) {
-        synchronized(lock) { running.remove(videoId) }
+        synchronized(lock) {
+            running.remove(videoId)
+            paused.remove(videoId)
+        }
     }
 
     /** Whether anything is still queued or in flight — see [DownloadService]'s workers. */
@@ -794,7 +859,10 @@ object Downloads {
      * forever as already in flight.
      */
     internal fun onStopped() {
-        synchronized(lock) { running.clear() }
+        synchronized(lock) {
+            running.clear()
+            paused.clear()
+        }
     }
 
     /**
@@ -842,8 +910,16 @@ object Downloads {
             clear(id)
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "download failed for $id: ${e.message}", e)
-            fail(id, e.friendly())
+            if (NavidromeIds.parse(id)?.entity == NavidromeEntity.SONG) {
+                // OkHttp exception text can include the request URL. A Navidrome
+                // URL carries short-lived auth parameters, so neither it nor the
+                // throwable is allowed to cross this logging boundary.
+                Log.w(TAG, "Navidrome download failed for $id")
+                fail(id, "Download failed — check your connection")
+            } else {
+                Log.w(TAG, "download failed for $id: ${e.message}", e)
+                fail(id, e.friendly())
+            }
         }
     }
 
@@ -889,7 +965,7 @@ object Downloads {
         // be lossless are worth guessing at: an `.m4a` may be this app's ALAC
         // or its AAC, and adopting the wrong one would quietly answer a request
         // for lossless with a transcode.
-        if (quality.keepsLossless) {
+        if (quality.keepsLossless && NavidromeIds.parse(track.videoId)?.entity != NavidromeEntity.SONG) {
             LOSSLESS_EXTENSIONS.firstNotNullOfOrNull { extension ->
                 DownloadStore.existing(context, DownloadStore.fileNameFor(track, extension))
             }?.let { uri ->
@@ -966,7 +1042,7 @@ object Downloads {
                     artwork = async { MediaTagger.artworkFor(context, track) }
                 }
 
-                val name = DownloadStore.fileNameFor(track, route.extension)
+                val name = DownloadStore.fileNameFor(track, route.extension, route.fileNamespace)
                 val alreadyThere = DownloadStore.existing(context, name)
                 if (alreadyThere != null) {
                     Log.d(TAG, "$name is already in Music; adopting it")
@@ -980,8 +1056,7 @@ object Downloads {
                 if (manifest != null) {
                     val onSegment: (Long, Long) -> Unit = { written, total ->
                         val fraction = written.toFloat() / total
-                        _active.update { it + (id to DownloadState.Running(fraction)) }
-                        DownloadSession.running(id, fraction)
+                        reportProgress(id, fraction)
                     }
                     val savedUri = if (manifest.dash) {
                         OfflineDash.save(
@@ -1016,8 +1091,7 @@ object Downloads {
                 destination.openStream().use { sink ->
                     route.write(sink) { written, total ->
                         val fraction = written.toFloat() / total
-                        _active.update { it + (id to DownloadState.Running(fraction)) }
-                        DownloadSession.running(id, fraction)
+                        reportProgress(id, fraction)
                     }
                 }
                 val words = lyrics?.await()
@@ -1066,6 +1140,8 @@ object Downloads {
         val downloadFormat: String? = null,
         val taggable: Boolean = true,
         val offlineHls: Manifest? = null,
+        /** Non-secret account suffix preventing one server's file from being adopted by another. */
+        val fileNamespace: String? = null,
         val write: suspend (OutputStream, (written: Long, total: Long) -> Unit) -> Unit,
     )
 
@@ -1093,6 +1169,53 @@ object Downloads {
      *   a mid-download refusal and has to ask for the same rung it started on.
      */
     private suspend fun routeFor(context: Context, track: Song, quality: DownloadQuality): Route {
+        val navidromeId = NavidromeIds.parse(track.videoId)
+            ?.takeIf { it.entity == NavidromeEntity.SONG }
+        if (navidromeId != null) {
+            val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
+                ?: error("Navidrome is not configured")
+            val details = when (
+                val result = NavidromeRepository(config = { config }).song(navidromeId.rawId)
+            ) {
+                is NavidromeApiResult.Success -> result.value
+                else -> null
+            }
+            val selectedProfile = NavidromeTranscoding.download.value
+            val original = NavidromeMediaResolver.downloadFormat(
+                NavidromeTranscodeProfile.ORIGINAL,
+                details?.suffix,
+                details?.contentType,
+            )
+            val effectiveProfile = if (selectedProfile == NavidromeTranscodeProfile.ORIGINAL && original == null) {
+                NavidromeTranscodeProfile.MP3_320
+            } else selectedProfile
+            val format = if (effectiveProfile == NavidromeTranscodeProfile.ORIGINAL) {
+                original ?: error("Navidrome returned an unsupported audio format")
+            } else {
+                requireNotNull(NavidromeMediaResolver.downloadFormat(effectiveProfile, null, null))
+            }
+            return Route(
+                extension = format.extension,
+                mimeType = format.mimeType,
+                describe = "Navidrome",
+                downloadFormat = if (effectiveProfile == NavidromeTranscodeProfile.ORIGINAL) {
+                    format.extension.uppercase(Locale.ROOT)
+                } else "${effectiveProfile.format?.uppercase(Locale.ROOT)} · ${effectiveProfile.maxBitRateKbps} kbps",
+                fileNamespace = "nd-${config.accountKey.take(8)}",
+                write = { sink, onProgress ->
+                    Downloader.fetchResumable(
+                        url = {
+                            NavidromeMediaResolver.downloadUrl(config, navidromeId.rawId, effectiveProfile)
+                                .toString()
+                        },
+                        headers = mapOf(NAVIDROME_SOURCE_HEADER to NAVIDROME_SOURCE_HEADER_VALUE),
+                        sink = sink,
+                        onProgress = onProgress,
+                        awaitReady = { awaitUnpaused(track.videoId) },
+                    )
+                },
+            )
+        }
         fromSources(track, quality)?.let { (stream, storable) ->
             // A manifest is an index, not audio. Whichever kind it is, fetching
             // it as a file writes the index into something named `.flac` —
@@ -1323,6 +1446,7 @@ object Downloads {
     }
 
     private const val KEY_SAVED = "downloaded_tracks"
+    private const val PAUSE_POLL_MS = 150L
 }
 
 @kotlinx.serialization.Serializable
@@ -1344,7 +1468,14 @@ internal data class SavedSongMetadata(
     val downloadFormat: String? = null,
     /** Stable creation time for downloads that MediaStore does not index. */
     val dateAddedSeconds: Long? = null,
+    /** Random non-secret namespace; null for non-Navidrome and legacy records. */
+    val sourceAccountKey: String? = null,
 )
+
+private fun navidromeAccountKey(videoId: String): String? {
+    if (NavidromeIds.parse(videoId)?.entity != NavidromeEntity.SONG) return null
+    return (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config?.accountKey
+}
 
 /**
  * Dates for a downloaded file-backed row.

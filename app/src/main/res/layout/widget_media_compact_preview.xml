@@ -5,7 +5,7 @@
 
   A copy of widget_media_compact with stand-in text, and only because of the
   text: everything else about the real layout already previews itself correctly —
-  widget_art carries no bitmap until a provider fills it, so the root's gradient
+  widget_art carries no bitmap until a provider fills it, so the root’s gradient
   background shows through. The same reason widget_media_wide_preview exists.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"

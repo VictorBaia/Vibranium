@@ -161,6 +161,18 @@ class DownloadSessionTest {
     }
 
     @Test
+    fun `paused download remains active and preserves its measured progress`() {
+        DownloadSession.queued(song("nd:a"))
+        DownloadSession.running("nd:a", 0.4f)
+        DownloadSession.paused("nd:a", 0.4f)
+
+        val state = DownloadSession.state.value
+        assertTrue(state.busy)
+        assertTrue(state.items.single().progress is DownloadProgress.Paused)
+        assertEquals(0.4f, state.fraction, 0.001f)
+    }
+
+    @Test
     fun `the catalogue swap corrects the row rather than adding another`() {
         DownloadSession.queued(song("vid", title = "Kesariya (Official Video)"))
         DownloadSession.retitle("vid", song("audio", title = "Kesariya"))

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="navidrome">Navidrome</string>
+    <string name="navidrome_settings_subtitle">Conexão com o servidor e conta</string>
+    <string name="navidrome_login_footer">As credenciais são testadas antes de serem armazenadas com segurança neste dispositivo.</string>
+    <string name="navidrome_server">Servidor</string>
+    <string name="navidrome_server_url">URL do servidor</string>
+    <string name="navidrome_server_url_example">https://musica.exemplo.com</string>
+    <string name="navidrome_username">Usuário</string>
+    <string name="navidrome_password">Senha</string>
+    <string name="navidrome_api_key">Chave de API</string>
+    <string name="navidrome_sign_in">Entrar no Navidrome</string>
+    <string name="navidrome_sign_in_subtitle">Informe o servidor e os dados da conta</string>
+    <string name="navidrome_sign_out">Sair do Navidrome</string>
+    <string name="navidrome_connected">Conectado</string>
+    <string name="navidrome_change_login">Alterar login</string>
+    <string name="navidrome_test_connection">Testar conexão</string>
+    <string name="navidrome_connect">Conectar</string>
+    <string name="navidrome_connecting">Conectando…</string>
+    <string name="navidrome_loading_configuration">Carregando configuração…</string>
+    <string name="navidrome_sign_in_required">Conecte seu servidor Navidrome nas Configurações para abrir sua biblioteca.</string>
+    <string name="navidrome_newest_albums">Álbuns mais recentes</string>
+    <string name="navidrome_recent_albums">Álbuns ouvidos recentemente</string>
+    <string name="navidrome_frequent_albums">Álbuns mais ouvidos</string>
+    <string name="navidrome_random_albums">Álbuns aleatórios</string>
+    <string name="navidrome_genres">Gêneros</string>
+    <string name="navidrome_connection_success">Conexão realizada com sucesso</string>
+    <string name="navidrome_invalid_input">Confira a URL do servidor e os campos obrigatórios.</string>
+    <string name="navidrome_invalid_endpoint">O servidor não oferece um endpoint OpenSubsonic compatível.</string>
+    <string name="navidrome_unreachable">Não foi possível acessar o servidor.</string>
+    <string name="navidrome_invalid_credentials">O servidor recusou estas credenciais.</string>
+    <string name="navidrome_unsupported_authentication">Este método de autenticação não é aceito pelo servidor.</string>
+    <string name="navidrome_forbidden">Esta conta não tem permissão para se conectar.</string>
+    <string name="navidrome_invalid_response">O servidor retornou uma resposta inválida.</string>
+    <string name="navidrome_secure_storage_unavailable">Armazenamento seguro indisponível</string>
+    <string name="navidrome_secure_storage_unavailable_subtitle">Não foi possível abrir o Android Keystore. As credenciais não foram armazenadas.</string>
+    <string name="download_paused">Download pausado</string>
+    <string name="resume_download">Retomar download</string>
+    <string name="navidrome_original_file">Arquivo original</string>
+    <string name="navidrome_no_transcoding">Sem transcodificação</string>
+    <string name="navidrome_transcoded_by_server">Transcodificado pelo Navidrome</string>
+    <string name="navidrome_quality_aac">AAC · %1$d kbps</string>
+    <string name="navidrome_quality_mp3">MP3 · %1$d kbps</string>
+</resources>
