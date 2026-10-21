@@ -73,8 +73,6 @@ import kotlin.coroutines.coroutineContext
 @UnstableApi
 object AudioCache {
 
-    const val WATCH_READ_PARAM = "watch_read"
-
     private const val TAG = "BitChord"
 
     /**
@@ -377,7 +375,20 @@ object AudioCache {
      * The videoId behind a request. Playback asks through the custom scheme;
      * read-ahead builds the same URI, so both land on one cache entry.
      */
+    /**
+     * Marks a read made for the BitChord watch app. Its streams are capped below
+     * lossless — see [AppSettings.streamCeilingOverride] — and so are kept apart
+     * from this phone's own: a lossless file cached by the phone must never be
+     * what the watch is handed, and the other way round.
+     */
+    const val WATCH_READ_PARAM = "watch_read"
+
     private val keyFactory = CacheKeyFactory { spec ->
+        val key = phoneKey(spec)
+        if (spec.uri.getQueryParameter(WATCH_READ_PARAM) != null) "$key#watch" else key
+    }
+
+    private fun phoneKey(spec: androidx.media3.datasource.DataSpec): String =
         spec.uri.takeIf { it.authority == "navidrome" }?.let { uri ->
             val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
             config?.let { NavidromePlaybackContext.cacheKey(uri, it) }
@@ -422,7 +433,11 @@ object AudioCache {
                 val source = uri.getQueryParameter("s")
                 val track = uri.getQueryParameter("t")
                 if (source != null && track != null) {
-                    val base = "$source|$track"
+                    // A stereo row picked by hand gets an entry of its own: the
+                    // shared one may hold the Atmos mix the addon used to send
+                    // for it — see [SourceResolver.MIX_PARAM].
+                    val stereo = uri.getQueryParameter(SourceResolver.MIX_PARAM) == SourceResolver.MIX_STEREO
+                    val base = if (stereo) "$source|$track#stereo" else "$source|$track"
                     QualityUpgrade.cacheTag(uri)?.let { "$base#$it" } ?: base
                 } else {
                     null
@@ -430,7 +445,6 @@ object AudioCache {
             }
             ?: spec.key
             ?: spec.uri.toString()
-    }
 
     /**
      * Splits the `#alt` bucket in two along whatever this process currently

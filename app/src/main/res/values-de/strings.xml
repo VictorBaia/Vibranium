@@ -174,6 +174,8 @@
     <string name="japanese">Japanisch</string>
     <string name="russian">Russisch</string>
     <string name="chinese">Chinesisch (vereinfacht)</string>
+    <string name="chinese_simplified">Chinesisch (vereinfacht)</string>
+    <string name="chinese_traditional">Chinesisch (traditionell)</string>
     <string name="hebrew">Hebräisch</string>
     <string name="italian">Italienisch</string>
     <string name="turkish">Türkisch</string>
@@ -225,6 +227,8 @@
     <string name="stop_music_on_close_subtitle">Stoppt die Wiedergabe, wenn die App aus den letzten Apps entfernt wird</string>
     <string name="hide_volume_bar">Lautstärkeleiste ausblenden</string>
     <string name="hide_volume_bar_subtitle">Entfernt den Lautstärkeregler aus dem Hauptplayer</string>
+    <string name="hide_status_bar_in_player">Statusleiste im Player ausblenden</string>
+    <string name="hide_status_bar_in_player_subtitle">Blendet Uhr, Akku und Benachrichtigungssymbole aus, solange der Hauptplayer geöffnet ist</string>
     <string name="hide_song_status">Songstatus ausblenden</string>
     <string name="hide_song_status_subtitle">Blendet den Text „Wiedergabe aus“ bzw. „Abgespielt von“ im Player aus</string>
     <string name="off">Aus</string>
@@ -461,7 +465,7 @@
     <string name="upgrade_length_slack_footer">Eine größere Toleranz akzeptiert mehr Treffer aus Quellen, eine kleinere ist strenger. Standard sind 3 Sekunden.</string>
     <string name="seconds_short">%1$d s</string>
     <string name="spdc_token">sp_dc-Token</string>
-    <string name="spotify_canvas_setup">Spotify-Canvas-Einrichtung</string>
+    <string name="spotify_canvas_setup">Spotify einrichten</string>
     <string name="spotify_canvas_setup_description">Um Spotify Canvas zu nutzen, gib dein Spotify-sp_dc-Cookie an.</string>
     <string name="spotify_canvas_setup_steps">1. Melde dich in einem Browser bei open.spotify.com an.\n2. Öffne die Entwicklertools, dann Anwendung und Cookies.\n3. Kopiere den Wert des sp_dc-Cookies.\n4. Füge ihn unten ein.</string>
     <string name="spotify_canvas_auto_hide">Player-Steuerung automatisch ausblenden</string>
@@ -1286,15 +1290,8 @@
     <string name="spotify_import_unmatched">%1$d Titel wurden auf YouTube Music nicht gefunden</string>
     <string name="spotify_library_subtitle">Deine Spotify-Playlists</string>
     <string name="spotify_sign_in">Bei Spotify anmelden</string>
-    <string name="spotify_track_unavailable">Diesen Titel gab es nicht auf YouTube Music</string>
-
-    <!-- Upstream strings retained alongside local translations. -->
-    <string name="chinese_simplified">Chinesisch (vereinfacht)</string>
-    <string name="chinese_traditional">Chinesisch (traditionell)</string>
-    <string name="hide_status_bar_in_player">Statusleiste im Player ausblenden</string>
-    <string name="hide_status_bar_in_player_subtitle">Blendet Uhr, Akku und Benachrichtigungssymbole aus, solange der Hauptplayer geöffnet ist</string>
-    <string name="convert_to_video">In Video umwandeln</string>
     <string name="spotify_use_spdc_token">sp_dc-Token verwenden</string>
+    <string name="spotify_track_unavailable">Diesen Titel gab es nicht auf YouTube Music</string>
     <string name="artist_signatures">Künstlersignaturen</string>
     <string name="artist_signatures_subtitle">Zeigt eine handschriftliche Signatur, wenn Apple Music kein Titellogo hat</string>
     <string name="artist_signatures_url">Signatur-API-URL</string>

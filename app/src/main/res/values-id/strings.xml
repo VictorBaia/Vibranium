@@ -169,6 +169,8 @@
     <string name="japanese">Jepang</string>
     <string name="russian">Rusia</string>
     <string name="chinese">China (Sederhana)</string>
+    <string name="chinese_simplified">China (Sederhana)</string>
+    <string name="chinese_traditional">China (Tradisional)</string>
     <string name="hebrew">Ibrani</string>
     <string name="italian">Italia</string>
     <string name="turkish">Turki</string>
@@ -220,6 +222,8 @@
     <string name="stop_music_on_close_subtitle">Menghentikan pemutaran saat aplikasi digeser keluar dari aplikasi terbaru</string>
     <string name="hide_volume_bar">Sembunyikan bilah volume</string>
     <string name="hide_volume_bar_subtitle">Menghapus penggeser volume dari pemutar utama</string>
+    <string name="hide_status_bar_in_player">Sembunyikan bilah status di pemutar</string>
+    <string name="hide_status_bar_in_player_subtitle">Menyembunyikan jam, baterai, dan ikon notifikasi saat pemutar utama terbuka</string>
     <string name="hide_song_status">Sembunyikan status lagu</string>
     <string name="hide_song_status_subtitle">Menyembunyikan teks “Diputar dari” atau “Diputar oleh” di pemutar utama</string>
     <string name="off">Nonaktif</string>
@@ -447,7 +451,7 @@
     <string name="upgrade_length_slack_footer">Toleransi lebih besar menerima lebih banyak kecocokan sumber; toleransi lebih kecil lebih ketat. Bawaannya 3 detik.</string>
     <string name="seconds_short">%1$d dtk</string>
     <string name="spdc_token">Token sp_dc</string>
-    <string name="spotify_canvas_setup">Penyiapan Spotify Canvas</string>
+    <string name="spotify_canvas_setup">Siapkan Spotify</string>
     <string name="spotify_canvas_setup_description">Untuk menggunakan Spotify Canvas, berikan cookie sp_dc Spotify Anda.</string>
     <string name="spotify_canvas_setup_steps">1. Masuk di open.spotify.com melalui browser.\n2. Buka Developer Tools, lalu Application dan Cookies.\n3. Salin nilai cookie sp_dc.\n4. Tempel di bawah ini.</string>
     <string name="spotify_canvas_auto_hide">Sembunyikan kontrol otomatis</string>
@@ -1263,15 +1267,8 @@
     <string name="spotify_import_unmatched">%1$d lagu tidak ditemukan di YouTube Music</string>
     <string name="spotify_library_subtitle">Playlist Spotify Anda</string>
     <string name="spotify_sign_in">Masuk dengan Spotify</string>
-    <string name="spotify_track_unavailable">Lagu itu tidak ditemukan di YouTube Music</string>
-
-    <!-- Upstream strings retained alongside local translations. -->
-    <string name="chinese_simplified">China (Sederhana)</string>
-    <string name="chinese_traditional">China (Tradisional)</string>
-    <string name="hide_status_bar_in_player">Sembunyikan bilah status di pemutar</string>
-    <string name="hide_status_bar_in_player_subtitle">Menyembunyikan jam, baterai, dan ikon notifikasi saat pemutar utama terbuka</string>
-    <string name="convert_to_video">Ubah ke video</string>
     <string name="spotify_use_spdc_token">Gunakan token sp_dc</string>
+    <string name="spotify_track_unavailable">Lagu itu tidak ditemukan di YouTube Music</string>
     <string name="artist_signatures">Tanda tangan artis</string>
     <string name="artist_signatures_subtitle">Menampilkan tanda tangan tulisan tangan saat Apple Music tidak memiliki logo judul</string>
     <string name="artist_signatures_url">URL API tanda tangan</string>

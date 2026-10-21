@@ -186,6 +186,8 @@
     <string name="japanese">Japonca</string>
     <string name="russian">Rusça</string>
     <string name="chinese">Çince (Basitleştirilmiş)</string>
+    <string name="chinese_simplified">Çince (Basitleştirilmiş)</string>
+    <string name="chinese_traditional">Çince (Geleneksel)</string>
     <string name="hebrew">İbranice</string>
     <string name="italian">İtalyanca</string>
     <string name="turkish">Türkçe</string>
@@ -249,6 +251,8 @@
     <string name="stop_music_on_close_subtitle">Uygulama son kullanılanlardan kaydırılarak kapatıldığında çalmayı durdurur</string>
     <string name="hide_volume_bar">Ses çubuğunu gizle</string>
     <string name="hide_volume_bar_subtitle">Ses kaydırıcısını ana oynatıcıdan kaldırır</string>
+    <string name="hide_status_bar_in_player">Oynatıcıda durum çubuğunu gizle</string>
+    <string name="hide_status_bar_in_player_subtitle">Ana oynatıcı açıkken saat, pil ve bildirim simgelerini gizler</string>
     <string name="hide_song_status">Şarkı durumunu gizle</string>
     <string name="hide_song_status_subtitle">Ana oynatıcıdaki “Şuradan çalınıyor” veya “Çalan” yazısını gizler</string>
     <string name="off">Kapalı</string>
@@ -489,9 +493,9 @@
     <string name="upgrade_length_slack_footer">Daha büyük tolerans daha fazla kaynak eşleşmesi kabul eder; daha küçük tolerans daha katıdır. Varsayılan 3 saniyedir.</string>
     <string name="seconds_short">%1$d sn</string>
     <string name="spdc_token">sp_dc belirteci</string>
-    <string name="spotify_canvas_setup">Spotify Canvas kurulumu</string>
-    <string name="spotify_canvas_setup_description">Spotify Canvas’ı kullanmak için Spotify sp_dc çerezinizi girin.</string>
-    <string name="spotify_canvas_setup_steps">1. Bir tarayıcıda open.spotify.com’a giriş yapın.\n2. Geliştirici Araçları’nı, ardından Uygulama ve Çerezler’i açın.\n3. sp_dc çerezinin değerini kopyalayın.\n4. Aşağıya yapıştırın.</string>
+    <string name="spotify_canvas_setup">Spotify\'ı ayarla</string>
+    <string name="spotify_canvas_setup_description">Spotify Canvas\'ı kullanmak için Spotify sp_dc çerezinizi girin.</string>
+    <string name="spotify_canvas_setup_steps">1. Bir tarayıcıda open.spotify.com\'a giriş yapın.\n2. Geliştirici Araçları\'nı, ardından Uygulama ve Çerezler\'i açın.\n3. sp_dc çerezinin değerini kopyalayın.\n4. Aşağıya yapıştırın.</string>
     <string name="spotify_canvas_auto_hide">Oynatıcı kontrollerini otomatik gizle</string>
     <string name="spotify_canvas_auto_hide_subtitle">Spotify Canvas oynarken yarım oynatıcıyı 5 saniye sonra daraltır</string>
     <string name="prioritize_spotify_canvas">Spotify Canvas’a öncelik ver</string>
@@ -1243,15 +1247,8 @@
     <string name="spotify_import_unmatched">%1$d şarkı YouTube Music’de bulunamadı</string>
     <string name="spotify_library_subtitle">Spotify çalma listeleriniz</string>
     <string name="spotify_sign_in">Spotify ile oturum aç</string>
-    <string name="spotify_track_unavailable">O şarkı YouTube Music’de bulunamadı</string>
-
-    <!-- Upstream strings retained alongside local translations. -->
-    <string name="convert_to_video">Videoya dönüştür</string>
-    <string name="chinese_simplified">Çince (Basitleştirilmiş)</string>
-    <string name="chinese_traditional">Çince (Geleneksel)</string>
-    <string name="hide_status_bar_in_player">Oynatıcıda durum çubuğunu gizle</string>
-    <string name="hide_status_bar_in_player_subtitle">Ana oynatıcı açıkken saat, pil ve bildirim simgelerini gizler</string>
     <string name="spotify_use_spdc_token">sp_dc token\'ı kullan</string>
+    <string name="spotify_track_unavailable">O şarkı YouTube Music’de bulunamadı</string>
     <string name="artist_signatures">Sanatçı imzaları</string>
     <string name="artist_signatures_subtitle">Apple Music\'te başlık logosu yokken el yazısı imza gösterir</string>
     <string name="artist_signatures_url">İmza API URL\'si</string>

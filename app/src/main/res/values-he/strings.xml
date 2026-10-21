@@ -176,6 +176,8 @@
     <string name="japanese">יפנית</string>
     <string name="russian">רוסית</string>
     <string name="chinese">סינית (מפושטת)</string>
+    <string name="chinese_simplified">סינית (מפושטת)</string>
+    <string name="chinese_traditional">סינית (מסורתית)</string>
     <string name="italian">איטלקית</string>
     <string name="turkish">טורקית</string>
     <string name="thai">תאית</string>
@@ -226,6 +228,8 @@
     <string name="stop_music_on_close_subtitle">עוצר את ההשמעה כשמחליקים את האפליקציה החוצה ממסך האפליקציות האחרונות</string>
     <string name="hide_volume_bar">הסתרת סרגל עוצמת הקול</string>
     <string name="hide_volume_bar_subtitle">מסיר את מחוון עוצמת הקול מהנגן הראשי</string>
+    <string name="hide_status_bar_in_player">הסתרת שורת המצב בנגן</string>
+    <string name="hide_status_bar_in_player_subtitle">מסתיר את השעון, הסוללה וסמלי ההתראות כשהנגן הראשי פתוח</string>
     <string name="hide_song_status">הסתרת סטטוס השיר</string>
     <string name="hide_song_status_subtitle">מסתיר את הטקסט „מושמע מתוך” או „הושמע על ידי” בנגן הראשי</string>
     <string name="off">כבוי</string>
@@ -426,7 +430,7 @@
     <string name="upgrade_length_slack_footer">סבילות גדולה יותר מקבלת יותר התאמות ממקורות; סבילות קטנה יותר מחמירה יותר. ברירת המחדל היא 3 שניות.</string>
     <string name="seconds_short">%1$d שנ׳</string>
     <string name="spdc_token">אסימון sp_dc</string>
-    <string name="spotify_canvas_setup">הגדרת Spotify Canvas</string>
+    <string name="spotify_canvas_setup">הגדרת Spotify</string>
     <string name="spotify_canvas_setup_description">כדי להשתמש ב-Spotify Canvas, ספק את קובץ ה-cookie של sp_dc שלך מספוטיפיי.</string>
     <string name="spotify_canvas_setup_steps">1. היכנס בכתובת open.spotify.com בדפדפן.
 2. פתח כלים למפתחים &gt; Application &gt; Cookies.
@@ -1291,15 +1295,8 @@
     <string name="spotify_import_unmatched">%1$d שירים לא נמצאו ב-YouTube Music</string>
     <string name="spotify_library_subtitle">הפלייליסטים שלכם ב-Spotify</string>
     <string name="spotify_sign_in">התחברות עם Spotify</string>
-    <string name="spotify_track_unavailable">לא נמצא שיר כזה ב-YouTube Music</string>
-
-    <!-- Upstream strings retained alongside local translations. -->
-    <string name="chinese_simplified">סינית (מפושטת)</string>
-    <string name="chinese_traditional">סינית (מסורתית)</string>
-    <string name="hide_status_bar_in_player">הסתרת שורת המצב בנגן</string>
-    <string name="hide_status_bar_in_player_subtitle">מסתיר את השעון, הסוללה וסמלי ההתראות כשהנגן הראשי פתוח</string>
-    <string name="convert_to_video">המרה לווידאו</string>
     <string name="spotify_use_spdc_token">שימוש באסימון sp_dc</string>
+    <string name="spotify_track_unavailable">לא נמצא שיר כזה ב-YouTube Music</string>
     <string name="artist_signatures">חתימות של אמנים</string>
     <string name="artist_signatures_subtitle">מציג חתימה בכתב יד כאשר ל-Apple Music אין לוגו כותרת</string>
     <string name="artist_signatures_url">כתובת API של חתימות</string>

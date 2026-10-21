@@ -91,7 +91,15 @@ data class Song(
     /** MediaStore timestamps used only to sort device and downloaded libraries. */
     val localDateAddedSeconds: Long? = null,
     val localDateModifiedSeconds: Long? = null,
-    /** Track number embedded in local audio metadata, when available. */
+    /**
+     * Track number within its album, from the file's own tags (`TRACK` in
+     * MediaStore, `CD_TRACK_NUMBER` via retriever). Null when the tags don't
+     * say — remote catalogue rows never carry one.
+     *
+     * Lets a local album list in release order instead of whatever the library
+     * sort left standing, and lets its rows show the release's own numbers
+     * rather than their position in that list.
+     */
     val trackNumber: Int? = null,
     /**
      * What a non-YouTube source says it can serve this recording at, as one of
@@ -106,7 +114,11 @@ data class Song(
      * the track played as a 128kbps MP3.
      */
     val sourceQuality: String? = null,
-    /** Whether a lossless source reports a hi-res rendition. */
+    /**
+     * Whether a `LOSSLESS` [sourceQuality] row said it was the hi-res tier
+     * (`HI_RES_LOSSLESS`, `hires-96`, `24-bit`). Display only — the resolver
+     * ranks on [sourceQuality], where 16-bit and 24-bit are one tier.
+     */
     val sourceHiRes: Boolean = false,
     /** Explicit-content state from the catalogue; null when that source does not say. */
     val isExplicit: Boolean? = null,
@@ -224,26 +236,39 @@ fun Song.artworkAt(px: Int): String? = thumbnailUrl.artworkAt(px)
  *
  * The one place that must not use this is the player's own queue, where the
  * entry, not the song, is what the row stands for — that list matches on
- * position.
+ * position. Any other list asks [playingRowMatcher], which tries identity
+ * before this.
  */
 fun Song.isSameTrackAs(other: Song?): Boolean {
     other ?: return false
     return title == other.title && artist == other.artist
 }
 
-/** Match only the active row when duplicate catalogue entries are present. */
+/**
+ * Which rows of one list get the now-playing highlight: the row that was
+ * played, not every row that shares its name.
+ *
+ * [isSameTrackAs] alone lit up both a song and its music video in a search,
+ * and both an addon's stereo and Atmos rows, whichever was tapped. So
+ * identity is tried first, list-wide: when any row *is* the playing track —
+ * same id, and the same playlist slot when the player knows it — only that
+ * row lights. Only when none is does the name rule apply, for the
+ * cross-catalogue case it exists for (a local file playing over a YouTube
+ * album page), and then only the first row it matches.
+ */
 fun playingRowMatcher(rows: List<Song>, current: Song?): (Song) -> Boolean {
     current ?: return { false }
     val sameId = rows.filter { it.videoId == current.videoId }
     if (sameId.isNotEmpty()) {
+        // A playlist holding the song twice: its slot says which one.
         val slot = current.setVideoId
         if (slot != null && sameId.any { it.setVideoId == slot }) {
             return { it.videoId == current.videoId && it.setVideoId == slot }
         }
         return { it.videoId == current.videoId }
     }
-    val match = rows.firstOrNull { it.isSameTrackAs(current) } ?: return { false }
-    return { it == match }
+    val byName = rows.firstOrNull { it.isSameTrackAs(current) } ?: return { false }
+    return { it == byName }
 }
 
 /**
@@ -285,7 +310,8 @@ fun String?.artworkAt(px: Int): String? = this?.let { url ->
             else -> "$url?size=$size"
         }
     } else {
-        url.replace(SIZE_HINT, "w$px-h$px")
+        val sized = url.replace(SIZE_HINT, "w$px-h$px")
+        if (isGoogleImageHost(url)) sized.replace(PARAM_SIZE_HINT, "=s$px") else sized
     }
 }
 
@@ -309,6 +335,19 @@ private val NAVIDROME_SIZE_HINT = Regex("""([?&])size=\d+""")
 private const val NAVIDROME_ARTWORK_PREFIX = "bitchord://navidrome-artwork/"
 private const val MIN_REMOTE_ART_PX = 64
 private const val MAX_REMOTE_ART_PX = 1_200
+
+private fun isGoogleImageHost(url: String): Boolean {
+    val host = url.substringAfter("://", "")
+        .ifEmpty { url.substringAfter("//", "") }
+        .substringBefore('/')
+        .substringBefore(':')
+        .substringBefore('?')
+        .lowercase()
+    return host == "ggpht.com" || host.endsWith(".ggpht.com") ||
+        host == "googleusercontent.com" || host.endsWith(".googleusercontent.com")
+}
+
+private val PARAM_SIZE_HINT = Regex("""=s\d+""")
 
 /**
  * Artwork for a list row. One 256px rendition is shared by every large list
@@ -520,6 +559,8 @@ data class DetailPage(
     val thumbnailUrl: String?,
     val songs: UiState<List<Song>>,
     val type: BrowseType = BrowseType.OTHER,
+    /** Continuation behind the currently visible songs, if the listing can grow. */
+    val continuation: String? = null,
     /** Albums / singles carousels, populated for artist pages. */
     val sections: List<HomeShelf> = emptyList(),
     /** Artist-to-artist recommendations, rendered after the About section. */

@@ -37,6 +37,7 @@ object BoundedContextPersistence {
         val entries: List<Entry>,
         val currentIndex: Int,
         val positionMs: Long,
+        val accountKey: String? = null,
     )
 
     private lateinit var prefs: SharedPreferences
@@ -255,6 +256,7 @@ object BoundedContextPersistence {
         entries = entries.map(StoredEntry::from),
         currentIndex = currentIndex,
         positionMs = positionMs.coerceAtLeast(0L),
+        accountKey = accountKey,
     )
 
     @Serializable
@@ -265,6 +267,7 @@ object BoundedContextPersistence {
         val entries: List<StoredEntry>,
         val currentIndex: Int,
         val positionMs: Long,
+        val accountKey: String? = null,
     ) {
         fun toState(): State? {
             if (schemaVersion != SCHEMA_VERSION) return null
@@ -304,6 +307,7 @@ object BoundedContextPersistence {
                 entries = restoredEntries,
                 currentIndex = currentIndex,
                 positionMs = positionMs,
+                accountKey = accountKey,
             )
             return restored.takeIf { validateState(it) != null }
         }
@@ -458,6 +462,8 @@ object BoundedContextPersistence {
         val localDateAddedSeconds: Long? = null,
         val localDateModifiedSeconds: Long? = null,
         val sourceQuality: String? = null,
+        val sourceHiRes: Boolean = false,
+        val trackNumber: Int? = null,
         val isExplicit: Boolean? = null,
         val playbackSource: String? = null,
         val playbackSourceType: String? = null,
@@ -492,6 +498,8 @@ object BoundedContextPersistence {
                 localDateAddedSeconds = localDateAddedSeconds,
                 localDateModifiedSeconds = localDateModifiedSeconds,
                 sourceQuality = sourceQuality,
+                sourceHiRes = sourceHiRes,
+                trackNumber = trackNumber,
                 isExplicit = isExplicit,
                 playbackSource = playbackSource,
                 playbackSourceType = sourceType,
@@ -522,6 +530,8 @@ object BoundedContextPersistence {
                 localDateAddedSeconds = song.localDateAddedSeconds,
                 localDateModifiedSeconds = song.localDateModifiedSeconds,
                 sourceQuality = song.sourceQuality,
+                sourceHiRes = song.sourceHiRes,
+                trackNumber = song.trackNumber,
                 isExplicit = song.isExplicit,
                 playbackSource = song.playbackSource,
                 playbackSourceType = song.playbackSourceType?.name,

@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.music.bitchord.R
+import com.music.bitchord.BuildConfig
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.ic_google_g
 import com.music.bitchord.sharedui.resources.ic_logo
@@ -227,7 +228,7 @@ private fun ColumnScope.NamePage(
         }
     }
     Spacer(Modifier.height(24.dp))
-    Title(stringResource(R.string.onboarding_title))
+    Title(stringResource(if (BuildConfig.NAVIDROME_MODE) R.string.onboarding_navidrome_title else R.string.onboarding_title))
 
     Spacer(Modifier.weight(1f))
 
@@ -266,10 +267,10 @@ private fun ColumnScope.ConnectPage(
     Spacer(Modifier.height(16.dp))
     BackButton(onBack)
     Spacer(Modifier.height(20.dp))
-    Title(stringResource(R.string.onboarding_connect_title))
+    Title(stringResource(if (BuildConfig.NAVIDROME_MODE) R.string.navidrome_sign_in else R.string.onboarding_connect_title))
     Spacer(Modifier.height(14.dp))
     Text(
-        text = stringResource(R.string.onboarding_connect_body),
+        text = stringResource(if (BuildConfig.NAVIDROME_MODE) R.string.navidrome_sign_in_subtitle else R.string.onboarding_connect_body),
         style = MaterialTheme.typography.bodyLarge,
         fontSize = 17.sp,
         lineHeight = 23.sp,
@@ -279,15 +280,17 @@ private fun ColumnScope.ConnectPage(
     Spacer(Modifier.weight(1f))
 
     PillButton(
-        label = stringResource(R.string.onboarding_sign_in_google),
+        label = stringResource(if (BuildConfig.NAVIDROME_MODE) R.string.navidrome_connect else R.string.onboarding_sign_in_google),
         onClick = onSignIn,
         primary = true,
         leading = {
+            if (!BuildConfig.NAVIDROME_MODE) {
             Image(
                 painter = painterResource(Res.drawable.ic_google_g),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
+            }
         },
     )
     Spacer(Modifier.height(12.dp))

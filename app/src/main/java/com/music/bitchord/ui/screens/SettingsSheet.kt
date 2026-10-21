@@ -421,8 +421,8 @@ fun SettingsScreen(
                     )
                 }
             }
-        } else {
-            SearchableSettingsGroup(search) {
+        }
+        SearchableSettingsGroup(search) {
                 val accountTitle = stringResource(R.string.account_integrations)
                 // What the row opens is the scrobbling screen, so the services it
                 // signs into are worth typing at this field even though none of
@@ -451,7 +451,6 @@ fun SettingsScreen(
                         onClick = onListenTogether,
                     )
                 }
-            }
         }
 
         // The row that used to sit at the top of this group was called

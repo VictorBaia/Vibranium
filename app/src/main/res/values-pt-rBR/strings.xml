@@ -41,4 +41,5 @@
     <string name="navidrome_transcoded_by_server">Transcodificado pelo Navidrome</string>
     <string name="navidrome_quality_aac">AAC · %1$d kbps</string>
     <string name="navidrome_quality_mp3">MP3 · %1$d kbps</string>
+    <string name="onboarding_navidrome_title">Sua música, direto do Navidrome</string>
 </resources>

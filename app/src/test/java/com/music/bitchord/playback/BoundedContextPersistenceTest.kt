@@ -43,6 +43,8 @@ class BoundedContextPersistenceTest {
                 localDateAddedSeconds = 10L,
                 localDateModifiedSeconds = 20L,
                 sourceQuality = "LOSSLESS",
+                sourceHiRes = true,
+                trackNumber = index + 1,
                 isExplicit = true,
                 playbackSource = source.title,
                 playbackSourceType = source.type,
@@ -66,6 +68,7 @@ class BoundedContextPersistenceTest {
             entries = entries,
             currentIndex = 0,
             positionMs = 8_765L,
+            accountKey = "server-account-namespace",
         )
 
         val raw = requireNotNull(BoundedContextPersistence.encode(state))
@@ -75,6 +78,7 @@ class BoundedContextPersistenceTest {
         assertEquals(state.context.copy(version = 0L), restored.context)
         assertEquals(state.entries, restored.entries)
         assertEquals(8_765L, restored.positionMs)
+        assertEquals(state.accountKey, restored.accountKey)
     }
 
     @Test

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -251,10 +252,10 @@ fun SongActionsSheet(
             // Which recording, not which quality — a different question from
             // the row above, so it sits right under it rather than merged
             // into it, but still ahead of the divider both share.
-            onToggleAudioVersion?.takeIf { !isAudioVersion }?.let {
+            onToggleAudioVersion?.let {
                 ActionRow(
-                    icon = BitChordIcons.MusicNote,
-                    label = stringResource(R.string.convert_to_audio),
+                    icon = if (isAudioVersion) Icons.Rounded.Videocam else BitChordIcons.MusicNote,
+                    label = stringResource(if (isAudioVersion) R.string.convert_to_video else R.string.convert_to_audio),
                     accent = palette.accent,
                     onClick = it,
                 )
