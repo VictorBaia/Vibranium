@@ -147,6 +147,7 @@
     <string name="download_quality">คุณภาพการดาวน์โหลด</string>
     <string name="download_wifi_only">ดาวน์โหลดผ่าน Wi-Fi เท่านั้น</string>
     <string name="convert_to_audio">แปลงเป็นเสียง</string>
+    <string name="convert_to_video">แปลงเป็นวิดีโอ</string>
     <string name="converting_to_audio">กำลังแปลงเป็นเสียง…</string>
     <string name="revert_to_original">กลับไปใช้ต้นฉบับ</string>
     <string name="spatial_audio">เสียงเชิงพื้นที่</string>

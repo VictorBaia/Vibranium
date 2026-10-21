@@ -965,7 +965,7 @@
     <string name="radio_started">Radio %1$s iniciada</string>
 
     <string name="convert_to_audio">Convertir a audio</string>
-
+    <string name="convert_to_video">Convertir a vídeo</string>
     <string name="converting_to_audio">Convirtiendo a audio…</string>
 
     <string name="select_all">Seleccionar todo</string>

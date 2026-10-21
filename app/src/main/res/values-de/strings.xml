@@ -830,7 +830,7 @@
     <string name="choose_profile">Profil wählen</string>
 
     <string name="convert_to_audio">In Audio umwandeln</string>
-
+    <string name="convert_to_video">In Video umwandeln</string>
     <string name="converting_to_audio">Wandle in Audio um…</string>
 
     <string name="current_account">Aktuelles Konto</string>

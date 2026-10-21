@@ -153,6 +153,7 @@
     <string name="download_quality">İndirme kalitesi</string>
     <string name="download_wifi_only">Yalnızca Wi-Fi üzerinden indir</string>
     <string name="convert_to_audio">Sese dönüştür</string>
+    <string name="convert_to_video">Videoya dönüştür</string>
     <string name="converting_to_audio">Sese dönüştürülüyor…</string>
     <string name="revert_to_original">Orijinaline geri dön</string>
     <string name="spatial_audio">Uzamsal ses</string>

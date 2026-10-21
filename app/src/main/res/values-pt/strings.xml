@@ -859,7 +859,7 @@
     <string name="choose_profile">Escolha um perfil</string>
 
     <string name="convert_to_audio">Converter para áudio</string>
-
+    <string name="convert_to_video">Converter para vídeo</string>
     <string name="converting_to_audio">Convertendo para áudio…</string>
 
     <string name="current_account">Conta atual</string>

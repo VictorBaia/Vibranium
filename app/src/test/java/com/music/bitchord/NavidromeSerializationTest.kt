@@ -58,7 +58,7 @@ class NavidromeSerializationTest {
         assertEquals("Random", envelope.response.randomSongs?.song?.single()?.title)
         val lyrics = envelope.response.lyricsList?.structuredLyrics?.single()
         assertTrue(lyrics?.synced == true)
-        assertEquals(-100, lyrics?.offset)
+        assertEquals(-100L, lyrics?.offset)
         assertEquals("A line", lyrics?.line?.single()?.value)
     }
 

@@ -1,6 +1,7 @@
 import java.util.Properties
 import java.security.MessageDigest
 import java.io.FileInputStream
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -207,6 +208,7 @@ android {
     }
     testOptions {
         unitTests {
+            isIncludeAndroidResources = true
             // Unit tests run against a stub android.jar whose methods throw
             // rather than return. That is the right default for anything whose
             // behaviour depends on the framework, and wrong for android.util.Log
@@ -214,6 +216,21 @@ android {
             // so a test of that layer fails on the logging rather than on the
             // logic it was written to check.
             isReturnDefaultValues = true
+        }
+        unitTests.all {
+            it.systemProperty("maven.repo.local", File(System.getProperty("java.io.tmpdir"), "bitchord-robolectric-m2").absolutePath)
+            it.systemProperty("robolectric.conscryptMode", "OFF")
+            it.jvmArgs(
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+                "--add-opens=java.base/java.net=ALL-UNNAMED",
+                "--add-opens=java.base/java.security=ALL-UNNAMED",
+                "--add-opens=java.base/java.text=ALL-UNNAMED",
+                "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+            )
         }
     }
 }
@@ -421,6 +438,7 @@ dependencies {
     implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
     // A real HTTP server for the addon tests. The addon protocol is entirely
     // "what does this app send, and what does it do with what comes back", and
     // a hand-rolled fake of the client would be a test of the fake. Pinned to

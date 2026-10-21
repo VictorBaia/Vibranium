@@ -3296,6 +3296,7 @@ private fun BitChordApp(
                                     SearchFilter.SONGS,
                                     SearchFilter.ALBUMS,
                                     SearchFilter.ARTISTS,
+                                    SearchFilter.PLAYLISTS,
                                 )
                             } else {
                                 SearchFilter.entries
@@ -3540,20 +3541,8 @@ private fun BitChordApp(
                             onRefresh = { viewModel.refresh(MainViewModel.Feed.LIBRARY) },
                             pullState = libraryPull,
                             contentPadding = listPadding,
-                            links = if (BuildConfig.NAVIDROME_MODE) {
-                                // Navidrome's Library is deliberately one
-                                // concise list: Downloads, Liked songs,
-                                // Artists and Albums — no dormant Local Music
-                                // or unrelated source folders in between.
-                                libraryLinks().take(1) + navidromeCollectionLinks
-                            } else {
-                                libraryLinks()
-                            },
-                            hiddenShelfTitles = if (BuildConfig.NAVIDROME_MODE) {
-                                setOf(context.getString(R.string.artists), context.getString(R.string.albums))
-                            } else {
-                                emptySet()
-                            },
+                            links = libraryLinks() + navidromeCollectionLinks,
+                            hiddenShelfTitles = emptySet(),
                             deviceItems = libraryDeviceItems(downloadedReleases) + localPlaylistItems,
                         )
                     }

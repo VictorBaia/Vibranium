@@ -868,7 +868,7 @@
     <string name="choose_profile">Wybierz profil</string>
 
     <string name="convert_to_audio">Konwertuj na dźwięk</string>
-
+    <string name="convert_to_video">Konwertuj na wideo</string>
     <string name="converting_to_audio">Konwertowanie na dźwięk…</string>
 
     <string name="current_account">Bieżące konto</string>

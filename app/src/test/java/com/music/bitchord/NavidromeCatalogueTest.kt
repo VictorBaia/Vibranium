@@ -21,7 +21,7 @@ class NavidromeCatalogueTest {
     @Test
     fun `home library explore and search use Navidrome identities`() = runBlocking {
         assertEquals(listOf("Newest", "Recent", "Frequent", "Random"), catalogue.home(labels).getOrThrow().map { it.title })
-        assertTrue(catalogue.library(labels).getOrThrow().likedSongs.single().videoId.startsWith("nd:song:"))
+        assertTrue(catalogue.library(labels).getOrThrow().likedSongs.single().videoId.startsWith("nd:"))
         assertTrue(catalogue.explore(labels).getOrThrow().single().items.single().browseId.startsWith("nd:genre:"))
         assertTrue(catalogue.search("song", SearchFilter.ALL).getOrThrow().isNotEmpty())
     }
@@ -34,10 +34,18 @@ class NavidromeCatalogueTest {
         assertTrue(album.songs is UiState.Success)
         assertTrue(playlist.songs is UiState.Success)
         val albumSongs = (album.songs as UiState.Success<List<Song>>).data
-        assertEquals(listOf("nd:song:song-1", "nd:song:song-3"), albumSongs.map(Song::videoId))
+        assertEquals(listOf("nd:song-1", "nd:song-3"), albumSongs.map(Song::videoId))
         assertEquals(listOf(1, 3), albumSongs.map(Song::releaseTrackNumber))
         assertEquals("Artist • 2024", album.subtitle)
         assertEquals("Server album notes", album.description)
+    }
+
+    @Test
+    fun `playlist search finds Navidrome collections`() = runBlocking {
+        val rows = catalogue.search("Mix", SearchFilter.PLAYLISTS).getOrThrow()
+        assertEquals(listOf("nd:playlist:playlist-1"), rows.map {
+            (it as com.music.bitchord.data.model.SearchResult.Browse).item.browseId
+        })
     }
 
     @Test

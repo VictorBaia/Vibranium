@@ -809,7 +809,7 @@
     <string name="choose_profile">Pilih profil</string>
 
     <string name="convert_to_audio">Konversi ke audio</string>
-
+    <string name="convert_to_video">Konversi ke video</string>
     <string name="converting_to_audio">Mengonversi ke audio…</string>
 
     <string name="current_account">Akun saat ini</string>

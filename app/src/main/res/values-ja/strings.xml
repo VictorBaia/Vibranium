@@ -933,7 +933,7 @@
     <string name="choose_a_channel">チャンネルを選択</string>
 
     <string name="convert_to_audio">音声に変換</string>
-
+    <string name="convert_to_video">動画に変換</string>
     <string name="converting_to_audio">音声に変換中…</string>
 
     <string name="dolby_atmos">Dolby Atmos</string>

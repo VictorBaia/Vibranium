@@ -21,7 +21,7 @@ class ProviderLyricsTest {
 
     @Test
     fun `the imported providers are exposed`() {
-        assertEquals(17, LyricsSource.entries.size)
+        assertEquals(18, LyricsSource.entries.size)
         assertTrue(LyricsSource.offered.containsAll(listOf(
             LyricsSource.BETTER_LYRICS_PORTATO,
             LyricsSource.PAXSENIX_SPOTIFY,
@@ -35,7 +35,7 @@ class ProviderLyricsTest {
     fun `hidden providers are kept but never offered`() {
         assertTrue(LyricsSource.entries.containsAll(listOf(LyricsSource.SIMP_MUSIC, LyricsSource.MEGALOBIZ)))
         assertTrue(LyricsSource.offered.none { it.hidden })
-        assertEquals(LyricsSource.LRC_RED, LyricsSource.offered.first())
+        assertEquals(LyricsSource.NAVIDROME, LyricsSource.offered.first())
     }
 
     @Test
@@ -43,10 +43,10 @@ class ProviderLyricsTest {
         // What a previous build saved: every source it had, LRCLIB dragged to
         // the top, and the two now-hidden ones still in it.
         val saved = listOf(LyricsSource.LRCLIB) +
-            (LyricsSource.entries - LyricsSource.LRC_RED - LyricsSource.LRCLIB)
+            (LyricsSource.entries - LyricsSource.NAVIDROME - LyricsSource.LRC_RED - LyricsSource.LRCLIB)
         val ordered = LyricsSource.ordered(saved)
         assertEquals(
-            listOf(LyricsSource.LRC_RED, LyricsSource.LRCLIB, LyricsSource.BINI_LYRICS),
+            listOf(LyricsSource.NAVIDROME, LyricsSource.LRC_RED, LyricsSource.LRCLIB),
             ordered.take(3),
         )
         assertEquals(LyricsSource.offered.toSet(), ordered.toSet())

@@ -171,6 +171,7 @@
     <string name="download_quality">Qualità download</string>
     <string name="download_wifi_only">Scarica solo via Wi-Fi</string>
     <string name="convert_to_audio">Converti in audio</string>
+    <string name="convert_to_video">Converti in video</string>
     <string name="converting_to_audio">Conversione in audio…</string>
     <string name="revert_to_original">Ripristina originale</string>
     <string name="spatial_audio">Audio spaziale</string>

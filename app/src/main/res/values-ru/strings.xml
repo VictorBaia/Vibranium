@@ -858,7 +858,7 @@
     <string name="choose_profile">Выберите профиль</string>
 
     <string name="convert_to_audio">Конвертировать в аудио</string>
-
+    <string name="convert_to_video">Конвертировать в видео</string>
     <string name="converting_to_audio">Конвертация в аудио…</string>
 
     <string name="current_account">Текущий аккаунт</string>

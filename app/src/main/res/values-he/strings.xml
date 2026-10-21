@@ -835,7 +835,7 @@
     <string name="choose_profile">בחר פרופיל</string>
 
     <string name="convert_to_audio">המר לאודיו</string>
-
+    <string name="convert_to_video">המר לווידאו</string>
     <string name="converting_to_audio">ממיר לאודיו…</string>
 
     <string name="current_account">חשבון נוכחי</string>

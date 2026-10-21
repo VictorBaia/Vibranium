@@ -831,7 +831,7 @@
     <string name="choose_profile">Choisir un profil</string>
 
     <string name="convert_to_audio">Convertir en audio</string>
-
+    <string name="convert_to_video">Convertir en vidéo</string>
     <string name="converting_to_audio">Conversion en audio…</string>
 
     <string name="current_account">Compte actuel</string>

@@ -109,13 +109,21 @@ internal class NavidromeCatalogue(
         val includeArtists = filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS
         val includeAlbums = filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS
         val includeSongs = filter == SearchFilter.ALL || filter == SearchFilter.SONGS
-        val result = repository.search(
-            query,
-            artistCount = if (includeArtists) 50 else 0,
-            albumCount = if (includeAlbums) 50 else 0,
-            songCount = if (includeSongs) 100 else 0,
-        ).valueOrThrow()
-        NavidromeMapper.search(result, filter)
+        val catalogueRows = if (includeArtists || includeAlbums || includeSongs) {
+            val result = repository.search(
+                query,
+                artistCount = if (includeArtists) 50 else 0,
+                albumCount = if (includeAlbums) 50 else 0,
+                songCount = if (includeSongs) 100 else 0,
+            ).valueOrThrow()
+            NavidromeMapper.search(result, filter)
+        } else emptyList()
+        val playlists = if (filter == SearchFilter.ALL || filter == SearchFilter.PLAYLISTS) {
+            repository.playlists().valueOrThrow()
+                .filter { it.name.contains(query, ignoreCase = true) || it.owner.orEmpty().contains(query, ignoreCase = true) }
+                .map { SearchResult.Browse(NavidromeMapper.playlist(it)) }
+        } else emptyList()
+        catalogueRows + playlists
     }
 
     suspend fun detail(

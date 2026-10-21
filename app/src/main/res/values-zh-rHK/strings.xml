@@ -1269,4 +1269,11 @@
     <string name="spotify_library_subtitle">你的 Spotify 播放列表</string>
     <string name="spotify_sign_in">使用 Spotify 登入</string>
     <string name="spotify_track_unavailable">在 YouTube Music 上找不到該歌曲</string>
+    <string name="artist_signatures">藝人簽名</string>
+    <string name="artist_signatures_subtitle">當 Apple Music 沒有標題標誌時顯示手寫簽名</string>
+    <string name="artist_signatures_url">簽名 API 網址</string>
+    <string name="artist_signatures_url_hint">https://signatures.example.com</string>
+    <string name="artist_signatures_unconfigured">尚未設定 — 輕觸以設定 API 網址</string>
+    <string name="artist_signatures_test_failed">無法連線至該網址的 API</string>
+    <string name="signed_by">由 %1$s 簽名</string>
 </resources>
