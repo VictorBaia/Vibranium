@@ -1,77 +1,120 @@
 <div align="center">
 
-<img src="Logo.png" alt="Vibranium logo" width="150" />
+<img src="Logo.png" alt="Logo do Vibranium" width="150" />
 
 # Vibranium
 
-### Music, your way. Everywhere.
+### Sua música, do seu jeito, em todas as telas.
 
-A colorful, open source music player built on [BitChord](https://github.com/kushagrasinghx/BitChord).
+Player musical de código aberto para Android, Wear OS, TV, desktop e navegador.
 
 <p>
-  <a href="https://github.com/VictorBaia/Vibranium/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/VictorBaia/Vibranium?style=for-the-badge&label=release&color=8b5cf6" /></a>
-  <a href="LICENSE"><img alt="GPL-3.0 license" src="https://img.shields.io/badge/license-GPL--3.0-6366f1?style=for-the-badge" /></a>
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Compose-ec4899?style=for-the-badge&logo=kotlin&logoColor=white" />
+  <a href="https://github.com/VictorBaia/Vibranium/releases"><img alt="Versões" src="https://img.shields.io/github/v/release/VictorBaia/Vibranium?style=for-the-badge&label=vers%C3%A3o&color=8b5cf6" /></a>
+  <a href="LICENSE"><img alt="GPL-3.0" src="https://img.shields.io/badge/licen%C3%A7a-GPL--3.0-6366f1?style=for-the-badge" /></a>
+  <img alt="Kotlin e Compose" src="https://img.shields.io/badge/Kotlin-Compose-ec4899?style=for-the-badge&logo=kotlin&logoColor=white" />
 </p>
 
-[Explore features](#-what-you-can-do) · [Get Vibranium](#-get-vibranium) · [Build it](#-build-from-source) · [Contribute](#-contributing)
+[Recursos](#-recursos) · [Plataformas](#-plataformas) · [Instalação](#-instalação) · [Compilação](#-compilação)
 
-<img src="Banner.png" alt="Vibranium app banner" width="100%" />
+<img src="Banner.png" alt="Interface do Vibranium" width="100%" />
 
 </div>
 
+## ✨ Recursos
+
+### Biblioteca e reprodução
+
+- Pesquisa, navegação e reprodução pelo YouTube Music, arquivos locais e fontes de biblioteca configuradas.
+- Integração com Navidrome por OpenSubsonic: artistas, álbuns, músicas, playlists, favoritos e streaming. Quando o servidor fornece as tags, os lançamentos são separados em singles, EPs e álbuns.
+- Fontes WebDAV e SMB e integração com Spotify conforme a plataforma e a configuração.
+- Downloads para ouvir offline, fila, reprodução em segundo plano e controles de mídia.
+- Ajustes de qualidade de áudio, velocidade, crossfade, temporizador para dormir e equalização. O desktop inclui análise de áudio para Automix.
+
+### Interface e descoberta
+
+- Cores e efeitos visuais derivados da capa, interface translúcida, Canvas animado quando disponível e player em tela cheia.
+- Letras sincronizadas, seleção de provedores e tradução sob demanda.
+- Histórico, estatísticas de audição, Replay, scrobbling e presença no Discord quando configurados.
+
+### Ouvir juntos
+
+**Ouvir juntos** cria uma sala com código de seis caracteres para sincronizar fila e reprodução entre até cinco dispositivos. O servidor opcional usa Go e WebSocket. Os participantes podem controlar a música, e o anfitrião pode restringir os controles. Veja [API, implantação e limites](backend/README.md).
+
 > [!NOTE]
-> Vibranium is an independent fork of BitChord. It is not affiliated with YouTube, Google, Spotify, Apple, or other music services.
+> Catálogo, letras, Canvas, integrações e reprodução dependem da plataforma, dos serviços conectados, da conta e das permissões configuradas. O Vibranium não hospeda arquivos de música.
 
-## ✨ What you can do
+## 📱 Plataformas
 
-| Listen | Make it yours |
-| :--- | :--- |
-| Search and play music from YouTube Music; listen to local files and configured library sources. | Enjoy artwork driven colors, animated canvas, synced lyrics, and a translucent interface. |
-| Download for offline listening and manage playback in the background. | Tune audio quality, playback speed, crossfade, sleep timer, and equalizer settings. |
-| Connect supported services and sources, including Spotify, Navidrome, WebDAV, and SMB. | Use scrobbling, Discord Rich Presence, listening stats, and Replay. |
-
-Some features require an account, a compatible server, or additional configuration. Source availability and playback behavior depend on the service you connect.
-
-## 📱 Where it runs
-
-| Platform | Project area | Learn more |
+| Plataforma | Implementação | Recursos específicos |
 | :--- | :--- | :--- |
-| Android phone | `app/` | [Android builds](#-build-from-source) |
-| Wear OS | `wearos/` | [Watch setup](wearos/README.md) |
-| Android TV / Google TV | `tv/` | [TV build](tv/README.md) |
-| Windows, macOS, Linux | `desktopApp/` | [Desktop guide](DESKTOP.md) |
-| Web player and browser extension | `web/` | [Web guide](web/README.md) |
+| Android | [`app/`](app/) | Aplicativo principal, fontes de música, downloads e controles de reprodução. |
+| Wear OS | [`wearos/`](wearos/) | Controle remoto do celular com fila, volume, favoritos e seleção de saída; o relógio também pode funcionar como saída de áudio. [Guia](wearos/README.md). |
+| Android TV / Google TV | [`tv/`](tv/) | Interface para controle remoto, biblioteca, pesquisa, player em tela cheia, letras e login por QR code. [Guia](tv/README.md). |
+| Windows, macOS e Linux | [`desktopApp/`](desktopApp/) | Aplicativo Compose Multiplatform e pacotes por sistema. [Guia](DESKTOP.md). |
+| Navegador | [`web/`](web/) | Player React e extensão para Chromium e Firefox. A extensão habilita reprodução, autenticação e integrações que exigem acesso ao navegador. [Guia](web/README.md). |
 
-## ⬇️ Get Vibranium
+A lógica e os componentes compartilhados ficam em [`shared/`](shared/), [`sharedUi/`](sharedUi/) e [`desktopUi/`](desktopUi/). O servidor de salas fica em [`backend/`](backend/).
 
-Check the [Vibranium releases](https://github.com/VictorBaia/Vibranium/releases) for published builds and their installation notes. Available packages can vary by release. For desktop installation and platform specific requirements, see the [desktop guide](DESKTOP.md).
+## ⬇️ Instalação
 
-> [!IMPORTANT]
-> Download builds only from a source you trust. The Android app may require permission to install apps from your browser or file manager.
+Consulte os pacotes em [Releases](https://github.com/VictorBaia/Vibranium/releases). Os formatos disponíveis variam por versão. Para instalar o desktop ou a extensão, siga os guias acima. O aplicativo do relógio precisa de um aplicativo Android compatível, com o mesmo tipo de build e a mesma chave de assinatura.
 
-## 🛠️ Build from source
+## 🛠️ Compilação
 
-For Android, use **JDK 17** and the Android SDK. The project currently compiles against **API 37**, targets **API 36**, and supports **API 26+**. Native audio components also require the Android NDK and CMake. Set `sdk.dir` in your local `local.properties` or configure `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
+### Android, TV e Wear OS
+
+Use **JDK 17**, Android SDK e, para componentes nativos, Android NDK e CMake. O aplicativo compila com **API 37**, tem como alvo **API 36** e suporta **API 26+**. Configure `sdk.dir` em `local.properties` ou defina `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
 
 ```bash
-# Android development APK
 ./gradlew :app:assembleDevDebug
-
-# Android unit tests
+./gradlew :tv:assembleProdDebug
+./gradlew :wearos:assembleDevDebug
 ./gradlew :app:testDevDebugUnitTest
 ```
 
-On Windows, use `gradlew.bat` instead of `./gradlew`. For desktop builds, use **JDK 21** and follow [DESKTOP.md](DESKTOP.md). The Android modules are included only when an Android SDK is available.
+No Windows, use `gradlew.bat`. Os módulos Android só são incluídos quando há SDK configurado. Builds de produção assinados exigem a configuração descrita em [`keystore.properties.example`](keystore.properties.example).
 
-The repository also contains an optional [Listen Together backend](backend/README.md).
+### Desktop
 
-## 🤝 Contributing
+Use **JDK 21**:
 
-Contributions are welcome. Start with the [contributing guide](CONTRIBUTING.md), then read the [code of conduct](CODE_OF_CONDUCT.md). For project context, see [additional documentation](ADDITIONAL.md) and the platform guides above.
+```bash
+./gradlew :desktopApp:run
+```
 
-## 💜 Credits and license
+O [guia de desktop](DESKTOP.md) detalha as dependências e a criação de instaladores.
 
-Vibranium builds on the work of the [BitChord project](https://github.com/kushagrasinghx/BitChord) and its contributors. Thanks also to the open source libraries and lyric providers used throughout the app.
+### Web e extensão
 
-Licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the full terms. Vibranium does not host music files; you are responsible for using connected services and media in accordance with their terms and applicable law.
+Use **Node.js 22+** e pnpm via Corepack:
+
+```bash
+corepack pnpm --dir web install
+corepack pnpm --dir web/app dev
+corepack pnpm --dir web/extension build
+```
+
+O site local abre em `http://localhost:5173`. Consulte o [guia web](web/README.md) para carregar a extensão e publicar o site.
+
+### Servidor de salas
+
+Na pasta `backend/`, com Go instalado:
+
+```bash
+go run .
+go test ./...
+```
+
+## 📚 Documentação
+
+| Tema | Guia |
+| :--- | :--- |
+| Navidrome e classificação de lançamentos | [Tipos de lançamento](docs/NAVIDROME_RELEASE_TYPES.md) |
+| Tradução de letras | [Pipeline de tradução](docs/LYRICS_TRANSLATION.md) |
+| Escuta compartilhada | [API e sincronização](backend/README.md) |
+| Desenvolvimento web | [Player e extensão](web/README.md) |
+| Contribuição | [Como contribuir](CONTRIBUTING.md) · [Código de conduta](CODE_OF_CONDUCT.md) |
+
+## 📄 Licença
+
+Distribuído sob a **GNU General Public License v3.0**. Leia [`LICENSE`](LICENSE) para os termos completos. Use os serviços conectados e os arquivos de mídia de acordo com suas condições e a legislação aplicável.
