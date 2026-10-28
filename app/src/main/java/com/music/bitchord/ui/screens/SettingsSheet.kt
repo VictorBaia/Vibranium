@@ -1,6 +1,5 @@
 package com.music.bitchord.ui.screens
 
-import com.music.bitchord.wear.WatchInstaller
 import android.content.Context
 import android.content.Intent
 import android.media.AudioFormat
@@ -28,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ScrollState
@@ -55,8 +53,8 @@ import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Gradient
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Translate
@@ -77,6 +75,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.WebAssetOff
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -134,20 +133,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
-import coil3.compose.AsyncImage
 import com.music.bitchord.ui.components.isGlassSupported
 import com.music.bitchord.ui.components.languageDisplayNameRes
 import com.music.bitchord.ui.components.MessageState
 import com.music.bitchord.ui.components.SearchField
-import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.ui.icons.BitChordIcons
 import com.music.bitchord.ui.performance.resolvePerformanceRefreshRate
 import com.music.bitchord.ui.performance.supportedPerformanceRefreshRates
-import com.music.bitchord.data.model.Account
-import com.music.bitchord.data.LocalMediaRepository
 import com.music.bitchord.data.NerdStats
+import com.music.bitchord.data.CrashDiagnostics
 import com.music.bitchord.data.scrobbling.LastFM
-import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.OutputPcmMode
 import com.music.bitchord.playback.AudioOutputStatus
@@ -160,6 +155,14 @@ import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
+import com.music.bitchord.data.canvas.CanvasCache
+import com.music.bitchord.data.cache.CacheUsageEntry
+import com.music.bitchord.data.navidrome.NavidromeLyricsMode
+import com.music.bitchord.data.navidrome.NavidromeLyricsSettings
+import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.navidrome.NavidromeSession
+import com.music.bitchord.data.navidrome.NavidromeSessionState
+import com.music.bitchord.data.navidrome.NavidromeTranscoding
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -177,19 +180,11 @@ import java.util.Locale
 fun SettingsScreen(
     /** The window's width, for the gates that depend on it. */
     windowWidth: Dp,
-    signedIn: Boolean,
-    account: Account?,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
     onNavidrome: () -> Unit,
-    onAccountScrobbling: () -> Unit,
     onEqualizer: () -> Unit,
     onOpenReplay: () -> Unit,
     onLyricsSources: () -> Unit,
     onTranslationLanguage: () -> Unit,
-    onSources: () -> Unit,
-    onListenTogether: () -> Unit,
-    onWearOs: () -> Unit,
     onSpotifyCanvasAuth: () -> Unit,
     onAppLanguage: () -> Unit,
     onEditSignatureApi: () -> Unit,
@@ -198,8 +193,6 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
 
-    val wifiQuality by AppSettings.audioQualityWifi.collectAsStateWithLifecycle()
-    val cellularQuality by AppSettings.audioQualityCellular.collectAsStateWithLifecycle()
     val metered by AppSettings.meteredConnection.collectAsStateWithLifecycle()
     val crossfade by AppSettings.crossfadeSeconds.collectAsStateWithLifecycle()
     val smartFade by AppSettings.smartFadeEnabled.collectAsStateWithLifecycle()
@@ -236,8 +229,15 @@ fun SettingsScreen(
     val playingFormat by NerdStats.current.collectAsStateWithLifecycle()
     val playingDolbyAtmos = playingFormat?.isDolbyAtmos == true
     val cacheLimitBytes by AppSettings.audioCacheLimitBytes.collectAsStateWithLifecycle()
+    val imageCacheLimitBytes by AppSettings.imageCacheLimitBytes.collectAsStateWithLifecycle()
+    val videoCacheLimitBytes by AppSettings.videoCacheLimitBytes.collectAsStateWithLifecycle()
+    val navidromeWifiQuality by NavidromeTranscoding.wifi.collectAsStateWithLifecycle()
+    val navidromeCellularQuality by NavidromeTranscoding.cellular.collectAsStateWithLifecycle()
+    val navidromeDownloadQuality by NavidromeTranscoding.download.collectAsStateWithLifecycle()
+    val navidromeStore by NavidromeStore.state.collectAsStateWithLifecycle()
+    val navidromeSession by NavidromeSession.state.collectAsStateWithLifecycle()
+    val navidromeLyricsMode by NavidromeLyricsSettings.mode.collectAsStateWithLifecycle()
     val showCacheFolder by AppSettings.showCacheFolder.collectAsStateWithLifecycle()
-    val downloadQuality by AppSettings.downloadQuality.collectAsStateWithLifecycle()
     val wifiOnlyDownloads by AppSettings.wifiOnlyDownloads.collectAsStateWithLifecycle()
     val exportDownloads by AppSettings.exportDownloads.collectAsStateWithLifecycle()
     val stopOnTaskRemoved by AppSettings.stopOnTaskRemoved.collectAsStateWithLifecycle()
@@ -247,10 +247,7 @@ fun SettingsScreen(
     val showQueueHistory by AppSettings.showQueueHistory.collectAsStateWithLifecycle()
     val swipeToPlayNext by AppSettings.swipeToPlayNext.collectAsStateWithLifecycle()
     val dontRepeatSuggestions by AppSettings.dontRepeatSuggestions.collectAsStateWithLifecycle()
-    val preferMusicOnly by AppSettings.preferMusicOnly.collectAsStateWithLifecycle()
     val smartVersionAlignment by AppSettings.smartVersionAlignment.collectAsStateWithLifecycle()
-    val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
-    val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
     val highPerformanceMode by AppSettings.highPerformanceMode.collectAsStateWithLifecycle()
     val performanceRefreshRate by AppSettings.performanceRefreshRate.collectAsStateWithLifecycle()
     val currentDisplay = LocalView.current.display
@@ -281,10 +278,6 @@ fun SettingsScreen(
 
     val replayGenres by AppSettings.replayGenres.collectAsStateWithLifecycle()
 
-    // Read here so the row can say "In a party · ABC123" rather than making
-    // somebody open the screen to find out whether they are still in one.
-    val party by ListenTogether.state.collectAsStateWithLifecycle()
-
     // Filters the rows below — see [SettingsSearch]. Blank shows everything,
     // exactly as if the field weren't there.
     var searchQuery by remember { mutableStateOf("") }
@@ -296,31 +289,32 @@ fun SettingsScreen(
     // check by looking at the app afterwards. Held per direction, or an import's
     // result reports itself under the word "Export".
     var exportStatus by remember { mutableStateOf<String?>(null) }
+    var crashExportStatus by remember { mutableStateOf<String?>(null) }
     var importStatus by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
     var confirmClearSongCache by remember { mutableStateOf(false) }
+    var confirmClearImageCache by remember { mutableStateOf(false) }
+    var confirmClearVideoCache by remember { mutableStateOf(false) }
+    var inspectedCache by remember { mutableStateOf<CacheType?>(null) }
+    var inspectedEntries by remember { mutableStateOf<List<CacheUsageEntry>>(emptyList()) }
+    var inspectingCache by remember { mutableStateOf(false) }
+    var audioCacheSize by remember { mutableStateOf(0L) }
+    var videoCacheSize by remember { mutableStateOf(0L) }
+    var imageCacheSize by remember { mutableStateOf(0L) }
     var showPerformanceWarning by remember { mutableStateOf(false) }
     var showPerformanceConfirmation by remember { mutableStateOf(false) }
     val backupScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        audioCacheSize = AudioCache.storageEntries().sumOf { it.bytes }
+        videoCacheSize = CanvasCache.storageEntries().sumOf { it.bytes }
+        imageCacheSize = imageCacheEntries(context).sumOf { it.bytes }
+    }
 
     val batterySettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
         showPerformanceConfirmation = true
     }
-    val localMusicFolderPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree(),
-    ) { folder ->
-        if (folder == null) return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                folder,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }
-        AppSettings.setLocalMusicFolderUri(folder.toString())
-    }
-
     /**
      * Both halves go through the system document picker rather than a path of
      * this app's own choosing. That is what puts the file somewhere the user can
@@ -341,6 +335,17 @@ fun SettingsScreen(
                     context.getString(R.string.export_failed, it.message ?: context.getString(R.string.unknown_error))
                 },
             )
+        }
+    }
+    val crashLogPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { destination ->
+        if (destination == null) return@rememberLauncherForActivityResult
+        backupScope.launch {
+            crashExportStatus = runCatching {
+                CrashDiagnostics.export(context, destination)
+                context.getString(R.string.crash_log_exported)
+            }.getOrElse { context.getString(R.string.crash_log_export_failed) }
         }
     }
     val importPicker = rememberLauncherForActivityResult(
@@ -409,10 +414,10 @@ fun SettingsScreen(
         )
 
         if (BuildConfig.NAVIDROME_MODE) {
-            SearchableSettingsGroup(search, header = stringResource(R.string.navidrome), topSpacing = 0.dp) {
-                val navidromeTitle = stringResource(R.string.navidrome)
+            SearchableSettingsGroup(search, header = stringResource(R.string.navidrome_integrations), topSpacing = 0.dp) {
+                val navidromeTitle = stringResource(R.string.navidrome_integrations)
                 val navidromeSubtitle = stringResource(R.string.navidrome_settings_subtitle)
-                row(navidromeTitle, navidromeSubtitle) {
+                row(navidromeTitle, navidromeSubtitle, "spotify", "discord", "listenbrainz", "last.fm") {
                     SettingsRow(
                         icon = Icons.Rounded.Dns,
                         title = navidromeTitle,
@@ -422,61 +427,14 @@ fun SettingsScreen(
                 }
             }
         }
-        SearchableSettingsGroup(search) {
-                val accountTitle = stringResource(R.string.account_integrations)
-                // What the row opens is the scrobbling screen, so the services it
-                // signs into are worth typing at this field even though none of
-                // them is named on the row itself.
-                row(accountTitle, "scrobbling", "last.fm", "listenbrainz") {
-                    SettingsRow(
-                        icon = Icons.Rounded.Person,
-                        title = accountTitle,
-                        subtitle = account?.email?.takeIf { it.isNotBlank() }
-                            ?: stringResource(if (signedIn) R.string.signed_in else R.string.not_signed_in),
-                        onClick = onAccountScrobbling,
-                    )
-                }
-                // Sits with the account rather than with Playback: a party is up to
-                // five signed-in people, and being signed in is the whole of what
-                // the row needs before it will do anything.
-                val listenTogetherTitle = stringResource(R.string.listen_together)
-                row(listenTogetherTitle, "jam", "party", "sync", "friends") {
-                    SettingsRow(
-                        icon = Icons.Rounded.Groups,
-                        title = listenTogetherTitle,
-                        subtitle = party.code?.let {
-                            stringResource(R.string.listen_together_in_party, it)
-                        } ?: stringResource(R.string.listen_together_subtitle),
-                        badge = party.members.size.takeIf { party.inParty && it > 1 }?.toString(),
-                        onClick = onListenTogether,
-                    )
-                }
-        }
-
-        // The row that used to sit at the top of this group was called
-        // "Lossless / HQ Audio" and toggled `SourceRegistry.setModuleEnabled` —
-        // it switched the *module source* on and off, not lossless. Sources
-        // above lists that as the module's own row now. Lossless itself is no
-        // longer a setting at all — see
-        // [SourceResolver.requestForNow][com.music.bitchord.data.sources.SourceResolver.requestForNow].
         SearchableSettingsGroup(search, header = stringResource(R.string.audio_quality)) {
-            val sourceTitle = stringResource(R.string.source)
-            val sourceSubtitle = stringResource(R.string.sources_subtitle)
-            row(sourceTitle, sourceSubtitle, "addon", "lossless") {
-                SettingsRow(
-                    icon = Icons.Rounded.Extension,
-                    title = sourceTitle,
-                    subtitle = sourceSubtitle,
-                    onClick = onSources,
-                )
-            }
             val onWifiTitle = stringResource(R.string.on_wifi)
             row(onWifiTitle, "wi-fi", "streaming quality") {
                 SettingsRow(
                     icon = Icons.Rounded.Wifi,
                     title = onWifiTitle,
                     badge = stringResource(R.string.in_use).takeIf { metered == false },
-                    value = wifiQuality.audioQualityLabel(),
+                    value = navidromeWifiQuality.localizedLabel(showBitrate = metered != false),
                     onClick = { picking = QualityTarget.WIFI },
                 )
             }
@@ -486,20 +444,10 @@ fun SettingsScreen(
                     icon = Icons.Rounded.SignalCellularAlt,
                     title = onMobileDataTitle,
                     badge = stringResource(R.string.in_use).takeIf { metered == true },
-                    value = cellularQuality.audioQualityLabel(),
+                    value = navidromeCellularQuality.localizedLabel(showBitrate = metered != true),
                     onClick = { picking = QualityTarget.CELLULAR },
                 )
             }
-            // Sits with the quality ceilings rather than with Playback: it
-            // decides which version of a track gets fetched, the same question
-            // the two rows above answer, and not how one is played back.
-            //
-            // Greyed rather than hidden where the device can't decode E-AC-3.
-            // A missing row reads as a feature the app doesn't have; a disabled
-            // one with a reason under it is the difference between "BitChord
-            // has no Atmos" and "this phone has no Dolby decoder", and only the
-            // second is true. The stored preference is left untouched either
-            // way — see [AppSettings.dolbyAtmos].
             val dolbyAtmosTitle = stringResource(R.string.dolby_atmos)
             row(dolbyAtmosTitle, "surround", "e-ac-3") {
                 SettingsRow(
@@ -512,19 +460,19 @@ fun SettingsScreen(
                             R.string.dolby_atmos_unavailable
                         },
                     ),
-                    enabled = dolbyAtmosSupported,
+                    enabled = false,
                     trailing = {
                         Switch(
                             checked = dolbyAtmos && dolbyAtmosSupported,
-                            onCheckedChange = AppSettings::setDolbyAtmos,
-                            enabled = dolbyAtmosSupported,
+                            onCheckedChange = null,
+                            enabled = false,
                             colors = SwitchDefaults.colors(
                                 checkedTrackColor = MaterialTheme.colorScheme.primary,
                                 checkedBorderColor = MaterialTheme.colorScheme.primary,
                             ),
                         )
                     },
-                    onClick = { AppSettings.setDolbyAtmos(!dolbyAtmos) },
+                    onClick = null,
                 )
             }
         }
@@ -540,8 +488,11 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Rounded.Download,
                     title = downloadQualityTitle,
-                    subtitle = stringResource(R.string.download_quality_subtitle, downloadQuality.perTrack),
-                    value = downloadQuality.localizedLabel(),
+                    subtitle = stringResource(
+                        if (navidromeDownloadQuality == com.music.bitchord.data.navidrome.NavidromeTranscodeProfile.ORIGINAL)
+                            R.string.navidrome_no_transcoding else R.string.navidrome_transcoded_by_server,
+                    ),
+                    value = navidromeDownloadQuality.localizedLabel(),
                     onClick = { pickingDownloadQuality = true },
                 )
             }
@@ -563,29 +514,34 @@ fun SettingsScreen(
                     title = exportDownloadsTitle,
                     checked = exportDownloads,
                     onCheckedChange = AppSettings::setExportDownloads,
-                    subtitle = "Music/BitChord".takeIf { exportDownloads },
+                    subtitle = "Music/Vibranium".takeIf { exportDownloads },
                 )
             }
         }
 
         SearchableSettingsGroup(search, header = stringResource(R.string.playback)) {
-            val preferMusicOnlyTitle = stringResource(R.string.prefer_music_only)
-            row(preferMusicOnlyTitle, "video", "audio", "music video") {
+            val forceStreaming = (navidromeStore as? NavidromeStore.State.Configured)?.config?.forceStreaming == true
+            val forceStreamingTitle = stringResource(R.string.force_music_streaming)
+            row(forceStreamingTitle, "navidrome", "streaming") {
                 SettingsRow(
-                    icon = Icons.Rounded.SmartDisplay,
-                    title = preferMusicOnlyTitle,
-                    subtitle = stringResource(R.string.prefer_music_only_subtitle),
+                    icon = Icons.Rounded.Waves,
+                    title = forceStreamingTitle,
+                    subtitle = stringResource(R.string.force_music_streaming_description),
+                    enabled = navidromeSession is NavidromeSessionState.SignedIn,
                     trailing = {
                         Switch(
-                            checked = preferMusicOnly,
-                            onCheckedChange = AppSettings::setPreferMusicOnly,
-                            colors = SwitchDefaults.colors(
-                                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                checkedBorderColor = MaterialTheme.colorScheme.primary,
-                            ),
+                            checked = forceStreaming,
+                            enabled = navidromeSession is NavidromeSessionState.SignedIn,
+                            onCheckedChange = { checked ->
+                                val state = NavidromeStore.state.value as? NavidromeStore.State.Configured
+                                state?.let { NavidromeStore.save(it.config.copy(forceStreaming = checked)) }
+                            },
                         )
                     },
-                    onClick = { AppSettings.setPreferMusicOnly(!preferMusicOnly) },
+                    onClick = {
+                        val state = NavidromeStore.state.value as? NavidromeStore.State.Configured
+                        state?.let { NavidromeStore.save(it.config.copy(forceStreaming = !forceStreaming)) }
+                    },
                 )
             }
             val outputPrecisionTitle = stringResource(R.string.output_precision)
@@ -732,6 +688,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Rounded.SurroundSound,
                     title = spatialAudioTitle,
+                    enabled = false,
                     // Widening a JOC stream would fight the object-based mix
                     // Dolby has already spatialized, so the service holds this
                     // off for the duration of an Atmos track — see
@@ -748,14 +705,15 @@ fun SettingsScreen(
                     trailing = {
                         Switch(
                             checked = spatialAudio,
-                            onCheckedChange = AppSettings::setSpatialAudio,
+                            enabled = false,
+                            onCheckedChange = null,
                             colors = SwitchDefaults.colors(
                                 checkedTrackColor = MaterialTheme.colorScheme.primary,
                                 checkedBorderColor = MaterialTheme.colorScheme.primary,
                             ),
                         )
                     },
-                    onClick = { AppSettings.setSpatialAudio(!spatialAudio) },
+                    onClick = null,
                 )
             }
             // The system panel is not listed here as well. A device with a
@@ -1050,6 +1008,25 @@ fun SettingsScreen(
                         onClick = onLyricsSources,
                     )
                 }
+                val serverLyricsTitle = stringResource(R.string.use_server_lyrics_as_default)
+                row(serverLyricsTitle, "navidrome", "lyrics") {
+                    SettingsRow(
+                        icon = Icons.Rounded.LibraryMusic,
+                        title = serverLyricsTitle,
+                        trailing = {
+                            Switch(
+                                checked = navidromeLyricsMode == NavidromeLyricsMode.NAVIDROME,
+                                onCheckedChange = { enabled -> NavidromeLyricsSettings.setMode(
+                                    if (enabled) NavidromeLyricsMode.NAVIDROME else NavidromeLyricsMode.APP_DEFAULT,
+                                ) },
+                            )
+                        },
+                        onClick = { NavidromeLyricsSettings.setMode(
+                            if (navidromeLyricsMode == NavidromeLyricsMode.NAVIDROME) NavidromeLyricsMode.APP_DEFAULT
+                            else NavidromeLyricsMode.NAVIDROME,
+                        ) },
+                    )
+                }
                 val translationLanguageTitle = stringResource(R.string.translation_language)
                 row(translationLanguageTitle, "lyrics", "translate") {
                     SettingsRow(
@@ -1129,49 +1106,6 @@ fun SettingsScreen(
             }
         }
 
-        SearchableSettingsGroup(search, header = stringResource(R.string.local_music)) {
-            val localMusicFolderTitle = stringResource(R.string.local_music_folder)
-            row(localMusicFolderTitle, "folder", "offline", "files") {
-                SettingsRow(
-                    icon = Icons.Rounded.Folder,
-                    title = localMusicFolderTitle,
-                    subtitle = LocalMediaRepository.selectedFolderLabel(localMusicFolderUri)
-                        ?: stringResource(R.string.all_audio_folders),
-                    onClick = { localMusicFolderPicker.launch(null) },
-                )
-            }
-            if (localMusicFolderUri.isNotBlank()) {
-                val useAllAudioFoldersTitle = stringResource(R.string.use_all_audio_folders)
-                row(useAllAudioFoldersTitle, "folder") {
-                    SettingsRow(
-                        icon = Icons.Rounded.LibraryMusic,
-                        title = useAllAudioFoldersTitle,
-                        subtitle = stringResource(R.string.use_all_audio_folders_subtitle),
-                        onClick = { AppSettings.setLocalMusicFolderUri("") },
-                    )
-                }
-            }
-            val filterNonMusicAudioTitle = stringResource(R.string.filter_non_music_audio)
-            row(filterNonMusicAudioTitle, "podcast", "recording") {
-                SettingsRow(
-                    icon = Icons.Rounded.FilterAlt,
-                    title = filterNonMusicAudioTitle,
-                    subtitle = stringResource(R.string.filter_non_music_audio_subtitle),
-                    trailing = {
-                        Switch(
-                            checked = filterNonMusicAudio,
-                            onCheckedChange = AppSettings::setFilterNonMusicAudio,
-                            colors = SwitchDefaults.colors(
-                                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                checkedBorderColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                    },
-                    onClick = { AppSettings.setFilterNonMusicAudio(!filterNonMusicAudio) },
-                )
-            }
-        }
-
         val cacheUnlimited = cacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES
         // The slider's last stop, one step past the largest fixed size, is
         // "Unlimited" — see [AppSettings.setAudioCacheLimitBytes].
@@ -1180,7 +1114,7 @@ fun SettingsScreen(
         val cacheLimitLabel = if (cacheUnlimited) unlimitedLabel else formatCacheSize(cacheLimitMb)
         SearchableSettingsGroup(search, header = stringResource(R.string.storage)) {
             val showCacheFolderTitle = stringResource(R.string.show_cache_folder)
-            row(showCacheFolderTitle, "cache", "cached songs", "library", "folder") {
+            if (!BuildConfig.NAVIDROME_MODE) row(showCacheFolderTitle, "cache", "cached songs", "library", "folder") {
                 SettingsRow(
                     icon = Icons.Rounded.Cached,
                     title = showCacheFolderTitle,
@@ -1203,20 +1137,46 @@ fun SettingsScreen(
                 SliderRow(
                     icon = Icons.Rounded.Storage,
                     title = songCacheLimitTitle,
-                    subtitle = when {
-                        cacheUnlimited -> stringResource(R.string.song_cache_unlimited_subtitle)
-                        cacheLimitMb > CACHE_WARNING_MB ->
-                            stringResource(R.string.song_cache_large_subtitle, cacheLimitLabel)
-                        else -> stringResource(R.string.song_cache_limit_subtitle)
-                    },
+                    subtitle = stringResource(R.string.song_cache_limit_subtitle),
                     value = cacheLimitLabel,
                     sliderValue = cacheLimitMb.toFloat(),
                     onSliderValue = {
-                        AppSettings.setAudioCacheLimitBytes(it.roundToInt().toLong() * 1024 * 1024)
+                        AppSettings.setAudioCacheLimitBytes(it.toInt().toLong() * 1024 * 1024)
                     },
-                    valueRange = (AppSettings.DEFAULT_CACHE_LIMIT_BYTES / (1024 * 1024)).toFloat()..
+                    valueRange = 512f..CACHE_UNLIMITED_STOP_MB.toFloat(),
+                    steps = 39,
+                )
+            }
+            val imageLimitTitle = stringResource(R.string.image_cache_limit)
+            row(imageLimitTitle, "cache", "image") {
+                SliderRow(
+                    icon = Icons.Rounded.Image,
+                    title = imageLimitTitle,
+                    subtitle = stringResource(R.string.image_cache_limit_subtitle),
+                    value = if (imageCacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES)
+                        unlimitedLabel else formatCacheSize((imageCacheLimitBytes / (1024 * 1024)).toInt()),
+                    sliderValue = if (imageCacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES)
+                        CACHE_UNLIMITED_STOP_MB.toFloat() else (imageCacheLimitBytes / (1024 * 1024)).toFloat(),
+                    onSliderValue = { AppSettings.setImageCacheLimitBytes(it.toInt().toLong() * 1024 * 1024) },
+                    valueRange = (AppSettings.MIN_IMAGE_CACHE_LIMIT_BYTES / (1024 * 1024)).toFloat()..
                         CACHE_UNLIMITED_STOP_MB.toFloat(),
-                    steps = 19,
+                    steps = 39,
+                )
+            }
+            val videoLimitTitle = stringResource(R.string.video_cache_limit)
+            row(videoLimitTitle, "cache", "video") {
+                SliderRow(
+                    icon = Icons.Rounded.VideoLibrary,
+                    title = videoLimitTitle,
+                    subtitle = stringResource(R.string.video_cache_limit_subtitle),
+                    value = if (videoCacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES)
+                        unlimitedLabel else formatCacheSize((videoCacheLimitBytes / (1024 * 1024)).toInt()),
+                    sliderValue = if (videoCacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES)
+                        CACHE_UNLIMITED_STOP_MB.toFloat() else (videoCacheLimitBytes / (1024 * 1024)).toFloat(),
+                    onSliderValue = { AppSettings.setVideoCacheLimitBytes(it.toInt().toLong() * 1024 * 1024) },
+                    valueRange = (AppSettings.MIN_VIDEO_CACHE_LIMIT_BYTES / (1024 * 1024)).toFloat()..
+                        CACHE_UNLIMITED_STOP_MB.toFloat(),
+                    steps = 39,
                 )
             }
             val clearSongCacheTitle = stringResource(R.string.clear_song_cache)
@@ -1234,21 +1194,53 @@ fun SettingsScreen(
                     icon = Icons.Rounded.DeleteSweep,
                     title = clearImageCacheTitle,
                     subtitle = stringResource(R.string.clear_image_cache_subtitle),
-                    onClick = {
-                        val loader = SingletonImageLoader.get(context)
-                        loader.memoryCache?.clear()
-                        loader.diskCache?.clear()
-                        Toast.makeText(context, context.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { confirmClearImageCache = true },
                 )
             }
-        }
-
-        // Only in a build that carries the watch app — see app/build.gradle.kts.
-        if (remember { WatchInstaller.available(context) }) {
-            SearchableSettingsGroup(search) {
-                row(stringResource(R.string.wear_os_section), "watch", "wear os", "galaxy watch", "pixel watch", "install") {
-                    WearOsSettingsRow(onClick = onWearOs)
+            val clearVideoTitle = stringResource(R.string.clear_video_cache)
+            row(clearVideoTitle, "cache", "video", "animated") {
+                SettingsRow(
+                    icon = Icons.Rounded.DeleteSweep,
+                    title = clearVideoTitle,
+                    subtitle = stringResource(R.string.clear_video_cache_subtitle),
+                    onClick = { confirmClearVideoCache = true },
+                )
+            }
+            listOf(
+                Triple(CacheType.AUDIO, R.string.cached_audio_files, audioCacheSize),
+                Triple(CacheType.VIDEO, R.string.cached_video_files, videoCacheSize),
+                Triple(CacheType.IMAGE, R.string.cached_image_files, imageCacheSize),
+            ).forEach { (type, titleRes, bytes) ->
+                val title = stringResource(titleRes)
+                row(title, "cache", "files") {
+                    SettingsRow(
+                        icon = when (type) {
+                            CacheType.AUDIO -> Icons.Rounded.Storage
+                            CacheType.VIDEO -> Icons.Rounded.VideoLibrary
+                            CacheType.IMAGE -> Icons.Rounded.Image
+                        },
+                        title = title,
+                        subtitle = stringResource(R.string.cached_files_subtitle),
+                        value = formatCacheBytes(bytes),
+                        onClick = {
+                            inspectedCache = type
+                            inspectedEntries = emptyList()
+                            inspectingCache = true
+                            backupScope.launch {
+                                inspectedEntries = when (type) {
+                                    CacheType.AUDIO -> AudioCache.storageEntries()
+                                    CacheType.VIDEO -> CanvasCache.storageEntries()
+                                    CacheType.IMAGE -> imageCacheEntries(context)
+                                }
+                                when (type) {
+                                    CacheType.AUDIO -> audioCacheSize = inspectedEntries.sumOf { it.bytes }
+                                    CacheType.VIDEO -> videoCacheSize = inspectedEntries.sumOf { it.bytes }
+                                    CacheType.IMAGE -> imageCacheSize = inspectedEntries.sumOf { it.bytes }
+                                }
+                                inspectingCache = false
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -1463,6 +1455,17 @@ fun SettingsScreen(
         }
 
         SearchableSettingsGroup(search, header = stringResource(R.string.advanced_options)) {
+            val crashLogTitle = stringResource(R.string.export_crash_log)
+            row(crashLogTitle, "crash", "anr", "log", "diagnostics") {
+                SettingsRow(
+                    icon = Icons.Rounded.FileUpload,
+                    title = crashLogTitle,
+                    subtitle = crashExportStatus ?: stringResource(R.string.export_crash_log_subtitle),
+                    onClick = {
+                        crashLogPicker.launch("vibranium-diagnostics-${System.currentTimeMillis()}.txt")
+                    },
+                )
+            }
             val smartAlignmentTitle = stringResource(R.string.smart_version_alignment)
             row(smartAlignmentTitle, "alignment", "sync", "waveform", "video", "audio", "skit", "intro") {
                 SettingsRow(
@@ -1575,7 +1578,7 @@ fun SettingsScreen(
         if (searchQuery.isBlank()) {
         Text(
             text = buildAnnotatedString {
-                append("bitchord $version  ")
+                append("Vibranium $version  ")
                 val linkStyles = TextLinkStyles(
                     style = SpanStyle(
                         color = MaterialTheme.colorScheme.primary,
@@ -1597,7 +1600,6 @@ fun SettingsScreen(
                 withLink(LinkAnnotation.Url("https://bitchord.kushagrasingh.in/", linkStyles)) {
                     append("Website")
                 }
-                append("\n~YouTube Music & Listen Together Backend")
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1614,25 +1616,12 @@ fun SettingsScreen(
             onDismissRequest = { picking = null },
             containerColor = MaterialTheme.colorScheme.background,
         ) {
-            QualitySheet(
+            NavidromeQualitySheet(
                 target = target,
-                selected = when (target) {
-                    QualityTarget.WIFI -> wifiQuality
-                    QualityTarget.CELLULAR -> cellularQuality
-                },
-                // Writes the one ceiling that was being edited and nothing
-                // else. There used to be a `SourceRegistry.applyQualityPreset`
-                // call here that flipped the module and JioSaavn switches to
-                // match — which meant budgeting *mobile data* switched those
-                // sources off while sitting on Wi-Fi, and coming back to Wi-Fi
-                // never switched them on again. Which sources a rung consults
-                // is now read per stream off the connection in force; see
-                // [AudioQuality.permits].
+                selected = if (target == QualityTarget.WIFI) navidromeWifiQuality else navidromeCellularQuality,
                 onSelect = { quality ->
-                    when (target) {
-                        QualityTarget.WIFI -> AppSettings.setAudioQualityWifi(quality)
-                        QualityTarget.CELLULAR -> AppSettings.setAudioQualityCellular(quality)
-                    }
+                    if (target == QualityTarget.WIFI) NavidromeTranscoding.setWifi(quality)
+                    else NavidromeTranscoding.setCellular(quality)
                     picking = null
                 },
             )
@@ -1644,10 +1633,11 @@ fun SettingsScreen(
             onDismissRequest = { pickingDownloadQuality = false },
             containerColor = MaterialTheme.colorScheme.background,
         ) {
-            DownloadQualitySheet(
-                selected = downloadQuality,
+            NavidromeQualitySheet(
+                target = null,
+                selected = navidromeDownloadQuality,
                 onSelect = { quality ->
-                    AppSettings.setDownloadQuality(quality)
+                    NavidromeTranscoding.setDownload(quality)
                     pickingDownloadQuality = false
                 },
             )
@@ -1681,6 +1671,7 @@ fun SettingsScreen(
                     AudioCache.clear {
                         Toast.makeText(context, context.getString(R.string.song_cache_cleared), Toast.LENGTH_SHORT).show()
                     }
+                    audioCacheSize = 0L
                 }) {
                     Text(stringResource(R.string.clear))
                 }
@@ -1690,6 +1681,54 @@ fun SettingsScreen(
                     Text(stringResource(R.string.cancel))
                 }
             },
+        )
+    }
+
+    if (confirmClearImageCache) {
+        AlertDialog(
+            onDismissRequest = { confirmClearImageCache = false },
+            title = { Text(stringResource(R.string.clear_image_cache)) },
+            text = { Text(stringResource(R.string.clear_image_cache_subtitle)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearImageCache = false
+                    SingletonImageLoader.get(context).also { loader ->
+                        loader.memoryCache?.clear()
+                        loader.diskCache?.clear()
+                    }
+                    imageCacheSize = 0L
+                    Toast.makeText(context, context.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
+                }) { Text(stringResource(R.string.clear)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearImageCache = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    if (confirmClearVideoCache) {
+        AlertDialog(
+            onDismissRequest = { confirmClearVideoCache = false },
+            title = { Text(stringResource(R.string.clear_video_cache)) },
+            text = { Text(stringResource(R.string.clear_video_cache_subtitle)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearVideoCache = false
+                    CanvasCache.clear()
+                    videoCacheSize = 0L
+                    Toast.makeText(context, context.getString(R.string.video_cache_cleared), Toast.LENGTH_SHORT).show()
+                }) { Text(stringResource(R.string.clear)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearVideoCache = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    inspectedCache?.let { type ->
+        CacheContentsDialog(
+            title = stringResource(when (type) {
+                CacheType.AUDIO -> R.string.cached_audio_files
+                CacheType.VIDEO -> R.string.cached_video_files
+                CacheType.IMAGE -> R.string.cached_image_files
+            }),
+            entries = inspectedEntries,
+            loading = inspectingCache,
+            onDismiss = { inspectedCache = null },
         )
     }
 
@@ -1959,97 +1998,13 @@ private const val CACHE_WARNING_MB = 2048
  * Where the cache limit slider's "Unlimited" stop sits: one 512MB step past
  * [AppSettings.MAX_CACHE_LIMIT_BYTES], so the fixed sizes keep their positions.
  */
-private const val CACHE_UNLIMITED_STOP_MB = 10 * 1024 + 512
+private const val CACHE_UNLIMITED_STOP_MB = 20 * 1024 + 512
 
 /** "512 MB", "2 GB", "2.5 GB" — whichever reads more naturally at that size. */
 internal fun formatCacheSize(mb: Int): String {
     if (mb < 1024) return "$mb MB"
     val gb = mb / 1024f
     return if (gb == gb.toInt().toFloat()) "${gb.toInt()} GB" else "%.1f GB".format(Locale.ROOT, gb)
-}
-
-/** Who you're signed in as, straight from YouTube Music's account menu. */
-@Composable
-internal fun AccountCard(
-    signedIn: Boolean,
-    account: Account?,
-    onSignIn: () -> Unit,
-    onClick: (() -> Unit)? = null,
-    /** Sits inside a [SettingsGroup] that already supplies the card, so draws none of its own. */
-    grouped: Boolean = false,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (grouped) {
-                    Modifier
-                } else {
-                    Modifier
-                        .padding(horizontal = GROUP_INSET)
-                        .clip(GroupShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                },
-            )
-            .then(
-                when {
-                    signedIn && onClick != null -> Modifier.clickable(onClick = onClick)
-                    !signedIn -> Modifier.clickable(onClick = onSignIn)
-                    else -> Modifier
-                },
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (account?.thumbnailUrl != null) {
-            AsyncImage(
-                model = account.thumbnailUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(52.dp).clip(CircleShape).thumbnailBorder(CircleShape),
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.outline),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Rounded.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = account?.name
-                    ?: stringResource(if (signedIn) R.string.signed_in else R.string.not_signed_in),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = account?.email?.takeIf { it.isNotBlank() }
-                    ?: stringResource(
-                        if (signedIn) R.string.youtube_music_account else R.string.tap_to_sign_in_google,
-                    ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (!signedIn) {
-            Spacer(Modifier.width(8.dp))
-            Chevron()
-        }
-    }
 }
 
 /** The quality options for one connection, with what each costs in data. */

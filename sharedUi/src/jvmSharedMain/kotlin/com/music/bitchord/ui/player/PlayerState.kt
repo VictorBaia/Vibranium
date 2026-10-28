@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import coil3.PlatformContext
+import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
@@ -28,11 +29,15 @@ import coil3.request.CachePolicy
 import coil3.size.Size
 import com.music.bitchord.data.canvas.CanvasArtwork
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.model.CARD_ART_PX
 import com.music.bitchord.data.model.artworkAt
 import com.music.bitchord.data.model.originalArtwork
+import com.music.bitchord.ui.graphics.forPixelAccess
+import com.music.bitchord.ui.graphics.toImageBitmap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -44,7 +49,6 @@ import kotlinx.coroutines.launch
 internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
     val canvasEnabled by PlayerSettings.animatedCanvas.collectAsStateWithLifecycle()
     val canvasOverCellular by PlayerSettings.canvasOverCellular.collectAsStateWithLifecycle()
-    val prioritizeSpotifyCanvas by PlayerSettings.prioritizeSpotifyCanvas.collectAsStateWithLifecycle()
     val meteredConnection by PlayerSettings.meteredConnection.collectAsStateWithLifecycle()
     // The switch turns the feature off outright; this is the narrower "not
     // over cellular" case — see [PlayerSettings.canvasOverCellular] for why a
@@ -57,8 +61,8 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
     // which is the flicker. A different song keys differently and starts
     // clean; the same-titled-impostor case is guarded where the clip is
     // adopted, by [CanvasArtwork.matches].
-    var canvas by remember(song.title, song.artist) { mutableStateOf<CanvasArtwork?>(null) }
-    LaunchedEffect(song.videoId, song.albumName, canvasAllowedNow, prioritizeSpotifyCanvas) {
+    var canvas by remember(song.title, song.albumArtist, song.albumId) { mutableStateOf<CanvasArtwork?>(null) }
+    LaunchedEffect(song.videoId, song.albumArtist, song.albumId, canvasAllowedNow) {
         if (!canvasAllowedNow) {
             canvas = null
             return@LaunchedEffect
@@ -72,21 +76,30 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
         // what is playing: [CanvasArtwork.matches] is what stops a preserved
         // clip from being a different song's that happens to share a title.
         canvas = PlayerPlatform.host.cachedCanvas(song)
-            ?: canvas?.takeIf { it.matches(song.title, song.artist, song.albumName) }
+            ?: canvas?.takeIf { song.albumArtist != null && it.matches(song.title, song.albumArtist.orEmpty(), null) }
 
-        // The album name is looked up separately and lands a moment after the
-        // player opens, and it is the field that makes the catalogue searches
-        // match. Give it that moment: if it arrives, this effect restarts and
-        // all that was spent waiting is the wait. If it never does — a track
-        // with no album, or a lookup that failed — the search still goes out,
-        // just a beat later, which is imperceptible for decoration.
-        if (canvas == null && song.albumName == null) delay(ALBUM_SETTLE_MS)
+        // Start immediately with the title and artist we already have. An
+        // album name arriving later restarts the effect, while the repository
+        // shares the in-flight lookup and keeps a matching clip on screen.
         // Keep what an earlier pass found if this one comes back empty, rather
         // than pulling a playing clip out from under itself.
         canvas = PlayerPlatform.host.canvasFor(song) ?: canvas
     }
 
     return canvas
+}
+
+/** Resolve and warm the next track's moving cover before a queue transition. */
+@Composable
+internal fun PrefetchUpcomingCanvas(song: Song?) {
+    val enabled by PlayerSettings.animatedCanvas.collectAsStateWithLifecycle()
+    val overCellular by PlayerSettings.canvasOverCellular.collectAsStateWithLifecycle()
+    val metered by PlayerSettings.meteredConnection.collectAsStateWithLifecycle()
+    LaunchedEffect(song?.videoId, song?.albumArtist, song?.albumId, enabled, overCellular, metered) {
+        if (song == null || !enabled || (metered == true && !overCellular)) return@LaunchedEffect
+        val clip = PlayerPlatform.host.cachedCanvas(song) ?: PlayerPlatform.host.canvasFor(song)
+        if (clip != null) PlayerPlatform.host.prefetchCanvasVideo(clip)
+    }
 }
 
 /**
@@ -96,7 +109,11 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
  * Everything here is keyed on the cover's [url] — see [rememberPlayerArtwork].
  */
 @Stable
-internal class PlayerArtwork(val url: String?, private val context: PlatformContext) {
+internal class PlayerArtwork(
+    val url: String?,
+    private val meshUrl: String?,
+    private val context: PlatformContext,
+) {
     /**
      * Whether the cover is on screen. Keyed on the artwork rather than on the
      * track, because that is what it actually describes and because only Coil
@@ -104,6 +121,20 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
      */
     var loaded by mutableStateOf(false)
         private set
+    var previewLoaded by mutableStateOf(false)
+        private set
+    val anyLoaded get() = loaded || previewLoaded
+
+    /** A small version of the same cover, often already in Coil's row cache. */
+    val previewRequest: ImageRequest by derivedStateOf {
+        ImageRequest.Builder(context)
+            .data(url.artworkAt(CARD_ART_PX))
+            .size(CARD_ART_PX)
+            .forPixelAccess()
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
 
     /**
      * Which go at this cover we are on, and the reason there is more than one.
@@ -144,9 +175,9 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
         val attempt = attempt
         ImageRequest.Builder(context)
             .data(url)
-            // Decode the original source. ART_PX is intentionally not used
-            // here: it is the old player cap and silently downgraded native
-            // Navidrome covers before they reached the screen.
+            // The visible sleeve keeps the source's native resolution. Only
+            // offscreen lookahead is decoded small; it still caches the same
+            // original bytes on disk for this request.
             .size(Size.ORIGINAL)
             // Keep the source bytes under one stable original-art key. The
             // Navidrome fetcher uses the same canonical URI in its persistent
@@ -177,6 +208,20 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
         if (state is AsyncImagePainter.State.Error) failed = true
     }
 
+    fun onPreviewState(state: AsyncImagePainter.State) {
+        previewLoaded = state is AsyncImagePainter.State.Success
+        if (state is AsyncImagePainter.State.Success && meshUrl != null) {
+            // The preview is already small and decoded for the visible player.
+            // Its pixels can produce the mirrored backdrop before either the
+            // preview or native-resolution sleeve is drawn for this song.
+            try {
+                publishPlayerArtworkMesh(meshUrl, state.result.image.toImageBitmap())
+            } catch (_: Exception) {
+                // The independent offscreen mesh request can still supply it.
+            }
+        }
+    }
+
     internal fun retry() {
         failed = false
         attempt++
@@ -190,7 +235,7 @@ internal fun rememberPlayerArtwork(remoteArt: String?): PlayerArtwork {
     // URL here so Navidrome can return the native/original artwork instead of
     // the bounded thumbnail variant used by rows and shelves.
     val artUrl = remoteArt.originalArtwork()
-    val art = remember(artUrl) { PlayerArtwork(artUrl, context) }
+    val art = remember(artUrl, remoteArt) { PlayerArtwork(artUrl, remoteArt, context) }
     LaunchedEffect(artUrl, art.failed) {
         // A track with no artwork at all fails immediately and would fail
         // identically three more times: there is no request to make, so there is
@@ -201,6 +246,32 @@ internal fun rememberPlayerArtwork(remoteArt: String?): PlayerArtwork {
     }
     return art
 }
+
+/** Warm the next queue cover before a skip or natural track transition. */
+@Composable
+internal fun PrefetchUpcomingArtwork(song: Song?) {
+    val context = LocalPlatformContext.current
+    val url = song?.thumbnailUrl.originalArtwork()
+    LaunchedEffect(url) {
+        if (url == null) return@LaunchedEffect
+        try {
+            SingletonImageLoader.get(context).execute(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    // Fetch/cache original bytes without retaining another
+                    // full-size bitmap beside the currently visible cover.
+                    .size(CARD_ART_PX)
+                    .diskCacheKey("artwork:original:$url")
+                    .build(),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A failed lookahead cannot affect the track currently playing.
+        }
+    }
+}
+
 
 /**
  * The seek bar's own state: a drag in progress, and where the handle was

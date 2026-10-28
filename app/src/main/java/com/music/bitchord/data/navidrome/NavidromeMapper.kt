@@ -21,6 +21,7 @@ internal object NavidromeMapper {
         }.orEmpty(),
         albumId = value.albumId?.let(NavidromeIds::album),
         albumName = value.album,
+        albumArtist = value.albumArtist,
         isVideo = false,
         releaseTrackNumber = value.track?.takeIf { it > 0 },
         isVideoOrigin = false,
@@ -31,7 +32,7 @@ internal object NavidromeMapper {
     fun artist(value: NavidromeArtist): BrowseItem = BrowseItem(
         browseId = NavidromeIds.artist(value.id),
         title = value.name,
-        subtitle = value.albumCount?.let { "$it" }.orEmpty(),
+        subtitle = "",
         thumbnailUrl = value.coverArt?.let(NavidromeArtwork::uri)
             ?: value.artistImageUrl,
         type = BrowseType.ARTIST,
@@ -66,13 +67,18 @@ internal object NavidromeMapper {
             addAll(value.song.map { SearchResult.Track(song(it)) })
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS) {
-            addAll(value.artist.map { SearchResult.Browse(artist(it)) })
+            // search3 may include track credits, composers and guest artists.
+            // Only an artist with releases belongs in the Album Artists view.
+            addAll(value.artist.filter(::isAlbumArtist).map { SearchResult.Browse(artist(it)) })
         }
         if (filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS) {
             addAll(value.album.map { SearchResult.Browse(album(it)) })
         }
         // OpenSubsonic search3 has no playlist or video result collection.
     }
+
+    fun isAlbumArtist(value: NavidromeArtist): Boolean =
+        (value.albumCount ?: value.album.size) > 0
 
     private fun durationText(seconds: Long): String {
         val hours = seconds / 3600

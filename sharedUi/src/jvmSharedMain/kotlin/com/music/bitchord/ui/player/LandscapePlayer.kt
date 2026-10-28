@@ -276,8 +276,11 @@ internal fun LandscapePlayerLayout(
 @Composable
 internal fun LandscapeArtwork(
     artRequest: ImageRequest,
+    previewRequest: ImageRequest,
     artLoaded: Boolean,
+    previewLoaded: Boolean,
     onArtState: (AsyncImagePainter.State) -> Unit,
+    onPreviewState: (AsyncImagePainter.State) -> Unit,
     canvas: CanvasArtwork?,
     canvasRendered: Boolean,
     isPlaying: Boolean,
@@ -294,7 +297,7 @@ internal fun LandscapeArtwork(
     shadowFraction: () -> Float = { 1f },
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
-    val casts = artLoaded || canvasRendered
+    val casts = artLoaded || previewLoaded || canvasRendered
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
@@ -318,7 +321,7 @@ internal fun LandscapeArtwork(
                 .background(Color.Black.copy(alpha = 0.18f)),
             contentAlignment = Alignment.Center,
         ) {
-            if (!artLoaded && !canvasRendered) {
+            if (!artLoaded && !previewLoaded && !canvasRendered) {
                 Icon(
                     imageVector = BitChordIcons.MusicNote,
                     contentDescription = null,
@@ -326,6 +329,15 @@ internal fun LandscapeArtwork(
                     modifier = Modifier.fillMaxSize(0.36f),
                 )
             }
+            AsyncImage(
+                model = previewRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onState = onPreviewState,
+                modifier = Modifier.fillMaxSize().drawWithContent {
+                    if (!artLoaded && !canvasRendered) drawContent()
+                },
+            )
             AsyncImage(
                 model = artRequest,
                 contentDescription = null,
@@ -466,7 +478,7 @@ internal fun LandscapeCredits(
         if (signedIn && song.localUri == null) {
             val liked = likeStatus == LikeStatus.LIKE
             CircleGlyph(
-                icon = if (liked) BitChordIcons.HeartFilled else BitChordIcons.Heart,
+                icon = if (liked) BitChordIcons.StarFilled else BitChordIcons.Star,
                 contentDescription = stringResource(
                     if (liked) Res.string.remove_from_liked else Res.string.like,
                 ),

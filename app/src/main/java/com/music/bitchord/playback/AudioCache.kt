@@ -195,7 +195,7 @@ object AudioCache {
     /** How many upcoming tracks are worth gathering for [prefetchQueue] — the caller doesn't need to know why. */
     const val QUEUE_DEPTH = QUEUE_LOOKAHEAD + 1
 
-    private lateinit var cache: SimpleCache
+    @Volatile private lateinit var cache: SimpleCache
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -251,6 +251,10 @@ object AudioCache {
 
     /** Drops everything on disk. The listener asked; no grace period. */
     fun clear(onComplete: () -> Unit = {}) {
+        if (!::cache.isInitialized) {
+            onComplete()
+            return
+        }
         cancel()
         // The bookkeeping describes bytes that are about to stop existing: a
         // one-round-per-track claim over an entry that just got deleted starts
@@ -290,6 +294,7 @@ object AudioCache {
      * Call it off the main thread.
      */
     fun discard(uri: Uri) {
+        if (!::cache.isInitialized) return
         val exact = keyFactory.buildCacheKey(DataSpec(uri))
         val about = mediaIdIn(uri)
         val family = uri.getQueryParameter("v")?.let { videoId ->
@@ -320,6 +325,7 @@ object AudioCache {
      * Runs on the caller's thread; call it off the main one.
      */
     fun discardRendition(uri: Uri) {
+        if (!::cache.isInitialized) return
         val key = keyFactory.buildCacheKey(DataSpec(uri))
         runCatching { cache.removeResource(key) }
             .onSuccess { TrackLog.d(TAG, "discarded unused rendition $key", about = mediaIdIn(uri)) }
@@ -872,6 +878,12 @@ object AudioCache {
      * Local file and content URIs bypass disk caching to prevent redundant writes.
      */
     fun playbackFactory(upstream: DataSource.Factory): DataSource.Factory = DataSource.Factory {
+        if (!::cache.isInitialized) {
+            // Cache opening and migration now run on a worker. Playback can
+            // still start immediately; once the worker finishes, subsequent
+            // data sources use the normal disk cache path.
+            return@Factory upstream.createDataSource()
+        }
         val cacheDs = cacheFactory(upstream).createDataSource()
         val upstreamDs = upstream.createDataSource()
         object : DataSource {
@@ -1048,6 +1060,7 @@ object AudioCache {
      * of skips only wherever the listener actually lands is worth chasing.
      */
     fun prefetchQueue(upcoming: List<Upcoming>) {
+        if (!::cache.isInitialized) return
         val mediaIds = upcoming.map { it.mediaId }
         // Navidrome playback still fills this cache, but speculative read-ahead
         // stays off until its server advertises a reliable byte length/range contract.

@@ -4,8 +4,12 @@ import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.UiState
 import com.music.bitchord.data.navidrome.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,6 +28,40 @@ class NavidromeCatalogueTest {
         assertTrue(catalogue.library(labels).getOrThrow().likedSongs.single().videoId.startsWith("nd:"))
         assertTrue(catalogue.explore(labels).getOrThrow().single().items.single().browseId.startsWith("nd:genre:"))
         assertTrue(catalogue.search("song", SearchFilter.ALL).getOrThrow().isNotEmpty())
+    }
+
+    @Test
+    fun `home publishes a completed shelf while another album request is still pending`() = runBlocking {
+        val releaseRecent = CompletableDeferred<Unit>()
+        val firstShelf = CompletableDeferred<String>()
+        val transport = object : NavidromeTransport {
+            override suspend fun testConnection(config: NavidromeConfig) =
+                NavidromeConnectionResult.Connected("navidrome", "test", true)
+
+            override suspend fun request(
+                config: NavidromeConfig,
+                method: String,
+                parameters: Map<String, String>,
+            ): NavidromeApiResult<NavidromeResponse> {
+                val type = parameters["type"].orEmpty()
+                if (type == "recent") releaseRecent.await()
+                val album = NavidromeAlbum("album-$type", name = type, artist = "Artist")
+                return NavidromeApiResult.Success(
+                    NavidromeResponse("ok", albumList2 = NavidromeAlbumList(listOf(album))),
+                )
+            }
+        }
+        val delayedCatalogue = NavidromeCatalogue(NavidromeRepository({ config }, transport))
+        val home = launch {
+            delayedCatalogue.home(labels) { _, shelf -> firstShelf.complete(shelf.title) }
+        }
+
+        val publishedTitle = withTimeout(3_000) { firstShelf.await() }
+        assertTrue(publishedTitle != "Recent")
+        assertFalse(home.isCompleted)
+
+        releaseRecent.complete(Unit)
+        home.join()
     }
 
     @Test
@@ -67,6 +105,18 @@ class NavidromeCatalogueTest {
         assertEquals(listOf("Single"), artist.sections[1].items.map { it.title })
         assertEquals(listOf("EP"), artist.sections[2].items.map { it.title })
         assertEquals("Related", artist.relatedArtists?.items?.single()?.title)
+        assertEquals("", artist.relatedArtists?.items?.single()?.subtitle)
+    }
+
+    @Test
+    fun `artist names resolve to canonical Navidrome browse IDs`() = runBlocking {
+        assertEquals("nd:artist:artist-1", catalogue.artistBrowseIdByName("artist").getOrThrow())
+        assertEquals("nd:artist:artist-1", catalogue.artistDetailByName(
+            artistName = "artist",
+            fallbackTitle = "artist",
+            fallbackSubtitle = "",
+            fallbackArtwork = null,
+        ).getOrThrow().browseId)
     }
 
     private class CatalogueTransport : NavidromeTransport {

@@ -161,7 +161,6 @@ import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.ui.components.AccountProfileSelector
 import com.music.bitchord.ui.components.SpotifyImportAlert
 import com.music.bitchord.ui.screens.WearOsScreen
-import com.music.bitchord.ui.screens.AccountAndScrobblingScreen
 import com.music.bitchord.ui.screens.DiscordDialog
 import com.music.bitchord.ui.screens.DiscordDialogHost
 import com.music.bitchord.ui.screens.DiscordScreen
@@ -262,6 +261,7 @@ import com.music.bitchord.ui.components.QueueActionNoticeHost
 import com.music.bitchord.ui.components.TopBarAccountButton
 import com.music.bitchord.ui.screens.SegmentedControl
 import com.music.bitchord.ui.components.SearchField
+import com.music.bitchord.ui.components.PAGE_GUTTER
 import com.music.bitchord.sharedui.resources.Res as SharedRes
 import com.music.bitchord.sharedui.resources.search_hint
 import com.music.bitchord.sharedui.resources.search_addons_hint
@@ -316,7 +316,6 @@ import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.ui.screens.HomeScreen
 import com.music.bitchord.ui.screens.LibraryGridPage
 import com.music.bitchord.ui.screens.LibraryScreen
-import com.music.bitchord.ui.screens.NavidromeLibraryCollectionScreen
 import com.music.bitchord.ui.screens.NAVIDROME_ALBUMS_BROWSE_ID
 import com.music.bitchord.ui.screens.NAVIDROME_ARTISTS_BROWSE_ID
 import com.music.bitchord.ui.screens.navidromeLibraryLinks
@@ -600,7 +599,6 @@ private fun BitChordApp(
     // A Library shelf's "Show all" — the shelf it was opened from, so its own
     // cards can be laid out again as a full-screen grid. See [LibraryGridPage].
     var libraryShowAll by remember { mutableStateOf<HomeShelf?>(null) }
-    var navidromeLibraryCollection by remember { mutableStateOf<String?>(null) }
     var detailActiveShelf by remember { mutableStateOf<HomeShelf?>(null) }
     var librarySortMenuOpen by remember { mutableStateOf(false) }
     var showLyricsSources by remember { mutableStateOf(false) }
@@ -821,7 +819,10 @@ private fun BitChordApp(
             val albums = page.shelves.firstOrNull { it.title == context.getString(R.string.albums) }
             navidromeLibraryLinks(
                 likedTitle = context.getString(R.string.auto_liked),
-                likedSubtitle = page.likedSongs.size.toString(),
+                // The detail header already derives and displays this count
+                // from the loaded tracks; duplicating it in the subtitle makes
+                // it look like a release year (e.g. "Playlist · 1898 · 1898 Tracks").
+                likedSubtitle = "",
                 likedCoverUri = "file:///android_asset/liked_cover.png",
                 artistsTitle = context.getString(R.string.artists),
                 artistsSubtitle = artists?.items?.size?.toString().orEmpty(),
@@ -1096,6 +1097,7 @@ private fun BitChordApp(
     val libraryListState = rememberLazyListState()
     val historyListState = rememberLazyListState()
     val libraryShowAllGridState = rememberLazyGridState()
+    var libraryShowAllQuery by rememberSaveable { mutableStateOf("") }
     val searchListState = rememberLazyListState()
     val currentListState = when (selectedTab) {
         TAB_HOME -> homeListState
@@ -2043,10 +2045,9 @@ private fun BitChordApp(
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
-    // The Search tab's Library source reads the Local Music folder, so it asks
-    // for the same permission opening that folder does.
+    // The non-Navidrome Library search reads device files and needs storage access.
     val onSearchSourceChange: (SearchSource) -> Unit = { source ->
-        if (source == SearchSource.LIBRARY && !LocalMediaRepository.hasStoragePermission(context)) {
+        if (source == SearchSource.LIBRARY && !BuildConfig.NAVIDROME_MODE && !LocalMediaRepository.hasStoragePermission(context)) {
             mediaPermissionLauncher.launch(mediaPermission)
         }
         viewModel.setSearchSource(source)
@@ -2055,8 +2056,18 @@ private fun BitChordApp(
     // card opens the same way from either.
     val onLibraryItemClick: (ShelfItem) -> Unit = { item ->
         item.browseId?.let { id ->
-            if (id == NAVIDROME_ARTISTS_BROWSE_ID || id == NAVIDROME_ALBUMS_BROWSE_ID) {
-                navidromeLibraryCollection = id
+            val collectionTitle = when (id) {
+                NAVIDROME_ARTISTS_BROWSE_ID -> context.getString(R.string.artists)
+                NAVIDROME_ALBUMS_BROWSE_ID -> context.getString(R.string.albums)
+                else -> null
+            }
+            if (collectionTitle != null) {
+                (libraryState as? UiState.Success)?.data?.shelves
+                    ?.firstOrNull { it.title == collectionTitle }
+                    ?.let { shelf ->
+                        libraryShowAll = shelf
+                        libraryShowAllQuery = ""
+                    }
                 return@let
             }
             if (id == SPOTIFY_BROWSE_ID) {
@@ -2660,7 +2671,6 @@ private fun BitChordApp(
         // Disabled while a detail page is open over the grid: that one's own
         // BackHandler below has to close first, or back would skip past it
         // straight to Library. See [onLibraryItemClick].
-        BackHandler(enabled = navidromeLibraryCollection != null && detail == null) { navidromeLibraryCollection = null }
         BackHandler(enabled = libraryShowAll != null && detail == null) { libraryShowAll = null }
         BackHandler(enabled = detailActiveShelf != null) { detailActiveShelf = null }
 
@@ -2676,7 +2686,6 @@ private fun BitChordApp(
                         showSpotify && detail == null -> "spotify"
                         showDiscord -> "discord"
                         showHistory -> "history"
-                        navidromeLibraryCollection != null && detail == null -> "navidrome_library_collection"
                         // `&& detail == null`: a card opened from the grid
                         // stacks a detail page over it exactly as one opened
                         // from the Library tab does — see
@@ -2797,38 +2806,60 @@ private fun BitChordApp(
                             onRetry = viewModel::loadHistory,
                             contentPadding = listPadding,
                         )
-                    } else if (key == "navidrome_library_collection") {
-                        val collection = navidromeLibraryCollection
-                        val page = (libraryState as? UiState.Success)?.data
-                        val artists = collection == NAVIDROME_ARTISTS_BROWSE_ID
-                        val title = if (artists) context.getString(R.string.artists) else context.getString(R.string.albums)
-                        val items = page?.shelves
-                            ?.firstOrNull { it.title == title }
-                            ?.items
-                            .orEmpty()
-                        NavidromeLibraryCollectionScreen(
-                            title = title,
-                            items = items,
-                            artists = artists,
-                            onItemClick = onLibraryItemClick,
-                            contentPadding = listPadding,
-                        )
                     } else if (key == "library_show_all") {
                         libraryShowAll?.let { shelf ->
-                            LibraryGridPage(
-                                shelf = shelf,
-                                gridState = libraryShowAllGridState,
-                                onItemClick = onLibraryItemClick,
-                                onItemLongPress = onBrowseLongPress,
-                                // Only the Playlists shelf can grow one — see
-                                // [PlaylistShelf].
-                                onNewPlaylist = if (shelf.title == YtMusicRepository.PLAYLISTS_SHELF) {
-                                    { creatingPlaylist = true }
-                                } else {
-                                    null
+                            val isArtistShelf = BuildConfig.NAVIDROME_MODE &&
+                                shelf.items.any { it.browseId?.startsWith("nd:artist:") == true }
+                            val isAlbumShelf = BuildConfig.NAVIDROME_MODE &&
+                                shelf.items.any { it.browseId?.startsWith("nd:album:") == true }
+                            val filteredShelf = if (libraryShowAllQuery.isBlank()) shelf else shelf.copy(
+                                items = shelf.items.filter { item ->
+                                    item.title.contains(libraryShowAllQuery, ignoreCase = true) ||
+                                        item.subtitle.contains(libraryShowAllQuery, ignoreCase = true)
                                 },
-                                contentPadding = listPadding,
                             )
+                            LaunchedEffect(shelf.title, libraryShowAllQuery) {
+                                libraryShowAllGridState.scrollToItem(0)
+                            }
+                            if (isArtistShelf || isAlbumShelf) {
+                                Column(Modifier.fillMaxSize()) {
+                                    SearchField(
+                                        query = libraryShowAllQuery,
+                                        onQueryChange = { libraryShowAllQuery = it },
+                                        onSubmit = {},
+                                        placeholder = shelf.title,
+                                        modifier = Modifier.padding(
+                                            start = PAGE_GUTTER,
+                                            end = PAGE_GUTTER,
+                                            top = listPadding.calculateTopPadding() + 10.dp,
+                                            bottom = 10.dp,
+                                        ),
+                                    )
+                                    LibraryGridPage(
+                                        shelf = filteredShelf,
+                                        gridState = libraryShowAllGridState,
+                                        onItemClick = onLibraryItemClick,
+                                        onItemLongPress = onBrowseLongPress,
+                                        contentPadding = PaddingValues(bottom = listPadding.calculateBottomPadding()),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            } else {
+                                LibraryGridPage(
+                                    shelf = shelf,
+                                    gridState = libraryShowAllGridState,
+                                    onItemClick = onLibraryItemClick,
+                                    onItemLongPress = onBrowseLongPress,
+                                    // Only the Playlists shelf can grow one — see
+                                    // [PlaylistShelf].
+                                    onNewPlaylist = if (shelf.title == YtMusicRepository.PLAYLISTS_SHELF) {
+                                        { creatingPlaylist = true }
+                                    } else {
+                                        null
+                                    },
+                                    contentPadding = listPadding,
+                                )
+                            }
                         }
                     } else if (key == "replay") {
                         ReplayScreen(
@@ -2883,27 +2914,6 @@ private fun BitChordApp(
                             onOpenDialog = { discordDialog = it },
                             contentPadding = listPadding,
                         )
-                    } else if (key == "account_scrobbling") {
-                        AccountAndScrobblingScreen(
-                            signedIn = signedIn,
-                            account = settingsAccount,
-                            channelName = selectedChannelName,
-                            onSignIn = {
-                                showAccountScrobbling = false
-                                showSettings = false
-                                webSession = WebSessionMode.SIGN_IN
-                            },
-                            onSwitchChannel = {
-                                viewModel.loadChannels()
-                                showAccountSelector = true
-                            },
-                            onSignOut = { viewModel.signOut() },
-                            onOpenListenBrainzLogin = { showListenBrainzLogin = true },
-                            onOpenLastfmLogin = { showLastfmLogin = true },
-                            onOpenDiscord = { showDiscord = true },
-                            onOpenSpotify = { showSpotify = true },
-                            contentPadding = listPadding,
-                        )
                     } else if (key == "sources") {
                         SourcesScreen(
                             contentPadding = listPadding,
@@ -2936,18 +2946,7 @@ private fun BitChordApp(
                     } else if (key == "settings") {
                         SettingsScreen(
                             windowWidth = windowWidth,
-                            signedIn = signedIn,
-                            account = settingsAccount,
-                            onSignIn = {
-                                showSettings = false
-                                webSession = WebSessionMode.SIGN_IN
-                            },
-                            onSignOut = { viewModel.signOut() },
                             onNavidrome = { settingsSubScreen = "navidrome" },
-                            onAccountScrobbling = {
-                                settingsSubScreen = "account_scrobbling"
-                                showAccountScrobbling = true
-                            },
                             onEqualizer = {
                                 settingsSubScreen = "equalizer"
                                 showEqualizer = true
@@ -2959,18 +2958,6 @@ private fun BitChordApp(
                             },
                             onLyricsSources = { showLyricsSources = true },
                             onTranslationLanguage = { showTranslationLanguage = true },
-                            onSources = {
-                                settingsSubScreen = "sources"
-                                showSources = true
-                            },
-                            onListenTogether = {
-                                settingsSubScreen = "listen_together"
-                                showListenTogether = true
-                            },
-                            onWearOs = {
-                                settingsSubScreen = "wear_os"
-                                showWearOs = true
-                            },
                             onSpotifyCanvasAuth = { showSpotifyCanvasAuth = true },
                             onAppLanguage = { showAppLanguage = true },
                             onEditSignatureApi = { editingSignatureApi = true },
@@ -3285,6 +3272,7 @@ private fun BitChordApp(
                         )
                         TAB_SEARCH -> SearchScreen(
                             query = query,
+                            emptyMessage = if (BuildConfig.NAVIDROME_MODE) stringResource(R.string.navidrome_search_empty) else null,
                             onQueryChange = viewModel::onQueryChange,
                             filter = filter,
                             currentSong = player.song,
@@ -3452,12 +3440,8 @@ private fun BitChordApp(
                             topPadding = topBarContentPadding(),
                             // The field is in the top bar; see the bar's accessory.
                             showField = false,
-                            sourceSwitcher = {
-                                val sources = if (BuildConfig.NAVIDROME_MODE) {
-                                    listOf(SearchSource.LIBRARY, SearchSource.ADDONS)
-                                } else {
-                                    SearchSource.entries
-                                }
+                            sourceSwitcher = if (BuildConfig.NAVIDROME_MODE) null else ({
+                                val sources = SearchSource.entries
                                 SegmentedControl(
                                     options = sources.map { source ->
                                         stringResource(when (source) {
@@ -3469,7 +3453,7 @@ private fun BitChordApp(
                                     selectedIndex = sources.indexOf(searchSource).coerceAtLeast(0),
                                     onSelect = { index -> onSearchSourceChange(sources[index]) },
                                 )
-                            },
+                            }),
                             searchingLibrary = searchSource == SearchSource.LIBRARY && !BuildConfig.NAVIDROME_MODE,
                             libraryResults = libraryResults,
                             searchingAddons = searchSource == SearchSource.ADDONS,
@@ -3515,7 +3499,10 @@ private fun BitChordApp(
                             onShelfItemLongPress = onBrowseLongPress,
                             onNewPlaylist = { creatingPlaylist = true },
                             onImportSpotifyPlaylist = { showSpotifyImportDialog = true },
-                            onShowAll = { shelf -> libraryShowAll = shelf },
+                            onShowAll = { shelf ->
+                                libraryShowAll = shelf
+                                libraryShowAllQuery = ""
+                            },
                             replay = {
                                 LibraryReplayEntry(
                                     cards = replayCards,
@@ -3568,34 +3555,12 @@ private fun BitChordApp(
                         ) {
                             NavidromeSettingsScreen(
                                 contentPadding = listPadding,
+                                modifier = if (glassActive) Modifier.nestedScroll(navBarScroll) else Modifier,
                                 onForceSynchronization = { viewModel.loadHome() },
-                            )
-                        }
-                    }
-                    "account_scrobbling" -> {
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = MaterialTheme.colorScheme.background,
-                        ) {
-                            AccountAndScrobblingScreen(
-                                signedIn = signedIn,
-                                account = settingsAccount,
-                                channelName = selectedChannelName,
-                                onSignIn = {
-                                    settingsSubScreen = null
-                                    showSettings = false
-                                    webSession = WebSessionMode.SIGN_IN
-                                },
-                                onSwitchChannel = {
-                                    viewModel.loadChannels()
-                                    showAccountSelector = true
-                                },
-                                onSignOut = { viewModel.signOut() },
                                 onOpenListenBrainzLogin = { showListenBrainzLogin = true },
                                 onOpenLastfmLogin = { showLastfmLogin = true },
                                 onOpenDiscord = { showDiscord = true },
                                 onOpenSpotify = { showSpotify = true },
-                                contentPadding = listPadding,
                             )
                         }
                     }
@@ -3738,10 +3703,8 @@ private fun BitChordApp(
                         showSpotify && detail == null -> stringResource(R.string.spotify)
                         showDiscord -> "Discord"
                         showHistory -> stringResource(R.string.history)
-                        navidromeLibraryCollection == NAVIDROME_ARTISTS_BROWSE_ID -> stringResource(R.string.artists)
-                        navidromeLibraryCollection == NAVIDROME_ALBUMS_BROWSE_ID -> stringResource(R.string.albums)
                         libraryShowAll != null && detail == null -> libraryShowAll?.title.orEmpty()
-                        settingsSubScreen == "navidrome" -> stringResource(R.string.navidrome)
+                        settingsSubScreen == "navidrome" -> stringResource(R.string.navidrome_integrations)
                         showAccountScrobbling -> stringResource(R.string.account_scrobbling)
                         showSources -> stringResource(R.string.sources)
                         showListenTogether -> stringResource(R.string.listen_together)
@@ -3768,7 +3731,6 @@ private fun BitChordApp(
                         showSettings || showAccountScrobbling || showSources || showListenTogether || showWearOs ||
                             showEqualizer ||
                             showDiscord || showHistory ||
-                            navidromeLibraryCollection != null ||
                             (libraryShowAll != null && detail == null) ||
                             (detail != null && detailActiveShelf != null) ||
                             selectedMoodGenre != null -> true
@@ -3784,7 +3746,6 @@ private fun BitChordApp(
                         showSpotify && detail == null -> ({ showSpotify = false })
                         showDiscord -> ({ showDiscord = false })
                         showHistory -> ({ showHistory = false })
-                        navidromeLibraryCollection != null -> ({ navidromeLibraryCollection = null })
                         libraryShowAll != null && detail == null -> ({ libraryShowAll = null })
                         showAccountScrobbling -> ({
                             showAccountScrobbling = false
@@ -3818,7 +3779,7 @@ private fun BitChordApp(
                     // Only on the Search tab itself, not on anything pushed over it.
                     accessory = if (
                         selectedTab == TAB_SEARCH && detail == null && selectedMoodGenre == null &&
-                        libraryShowAll == null && navidromeLibraryCollection == null && !showSettings && !showAccountScrobbling &&
+                        libraryShowAll == null && !showSettings && !showAccountScrobbling &&
                         !showSources && !showListenTogether && !showWearOs && !showEqualizer && !showDiscord &&
                         !showHistory && !showReplay
                     ) {
@@ -4142,6 +4103,7 @@ private fun BitChordApp(
                     settingsSubScreen = null
                     showHistory = false
                     libraryShowAll = null
+                    libraryShowAllQuery = ""
                     selectedTab = index
 
                     // Every search tab tap resets the field, focuses it, and opens

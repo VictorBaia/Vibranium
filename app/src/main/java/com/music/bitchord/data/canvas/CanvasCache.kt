@@ -4,17 +4,23 @@ import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.music.bitchord.data.Http
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.cache.CacheUsageEntry
 import com.music.bitchord.playback.DynamicLruCacheEvictor
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /**
@@ -41,9 +47,10 @@ import java.io.File
 @UnstableApi
 object CanvasCache {
 
-    private lateinit var cache: SimpleCache
+    @Volatile private lateinit var cache: SimpleCache
     private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_VIDEO_CACHE_LIMIT_BYTES)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val prefetchLocks = Array(64) { Mutex() }
 
     /** Opened once per process, alongside [com.music.bitchord.playback.AudioCache.init]. */
     fun init(context: Context) {
@@ -73,10 +80,45 @@ object CanvasCache {
      * choice [com.music.bitchord.playback.AudioCache] makes for audio.
      */
     fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory =
-        CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(upstream)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        if (::cache.isInitialized) {
+            CacheDataSource.Factory()
+                .setCache(cache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        } else {
+            // The video cache is opened off the UI thread during startup. If a
+            // player is created before that finishes, stream the clip directly
+            // instead of blocking launch or dereferencing an unopened cache.
+            upstream
+        }
+
+    /** Cache the first video bytes while the mini player is visible. */
+    suspend fun prefetchStart(url: String) = withContext(Dispatchers.IO) {
+        if (!::cache.isInitialized || url.isBlank()) return@withContext
+        prefetchLocks[(url.hashCode() and Int.MAX_VALUE) % prefetchLocks.size].withLock {
+            // The mini player and the next-track lookahead may discover the
+            // same clip together. A single writer avoids duplicate downloads
+            // and two cache holes competing with the actual video player.
+            if (cache.getCachedLength(url, 0, 1) > 0) return@withLock
+            val source = dataSourceFactory(OkHttpDataSource.Factory(Http.client)).createDataSource()
+            try {
+                source.open(DataSpec.Builder().setUri(url).build())
+                val buffer = ByteArray(16 * 1024)
+                var remaining = 256 * 1024
+                while (remaining > 0) {
+                    val read = source.read(buffer, 0, minOf(buffer.size, remaining))
+                    if (read < 0) break
+                    remaining -= read
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed prefetch never blocks playback; the player can retry.
+            } finally {
+                runCatching { source.close() }
+            }
+        }
+    }
 
     /** Removes every cached animated artwork clip. */
     fun clear() {

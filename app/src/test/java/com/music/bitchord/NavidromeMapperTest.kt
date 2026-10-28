@@ -46,7 +46,7 @@ class NavidromeMapperTest {
     @Test
     fun `search respects the selected existing filter`() {
         val source = NavidromeSearchResult(
-            artist = listOf(NavidromeArtist("ar", "Artist")),
+            artist = listOf(NavidromeArtist("ar", "Artist", albumCount = 1)),
             album = listOf(NavidromeAlbum("al", name = "Album")),
             song = listOf(NavidromeSong("so", "Song")),
         )
@@ -59,6 +59,14 @@ class NavidromeMapperTest {
         assertEquals(1, NavidromeMapper.search(source, SearchFilter.SONGS).size)
         assertTrue(NavidromeMapper.search(source, SearchFilter.VIDEOS).isEmpty())
         assertTrue(NavidromeMapper.search(source, SearchFilter.PLAYLISTS).isEmpty())
+    }
+
+    @Test
+    fun `artist browse items do not expose release counts as subtitles`() {
+        val artist = NavidromeMapper.artist(NavidromeArtist("ar", "Artist", albumCount = 8))
+
+        assertEquals("nd:artist:ar", artist.browseId)
+        assertEquals("", artist.subtitle)
     }
 
     @Test

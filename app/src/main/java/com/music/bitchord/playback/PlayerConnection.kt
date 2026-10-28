@@ -230,6 +230,7 @@ fun Song.toSongBundle(): Bundle = bundleOf(
     "artistId" to artistId,
     "albumId" to albumId,
     "albumName" to albumName,
+    "albumArtist" to albumArtist,
     "isVideo" to isVideo,
     "isVideoOrigin" to isVideoOrigin,
     "setVideoId" to setVideoId,
@@ -266,6 +267,7 @@ fun songFromBundle(b: Bundle): Song {
         artists = b.artistsFromBundle(),
         albumId = b.getString("albumId"),
         albumName = b.getString("albumName"),
+        albumArtist = b.getString("albumArtist"),
         isVideo = b.getBoolean("isVideo"),
         isVideoOrigin = b.getBoolean("isVideoOrigin"),
         setVideoId = b.getString("setVideoId"),
@@ -468,6 +470,7 @@ fun MediaItem.toSong() = Song(
     artists = mediaMetadata.extras?.artistsFromBundle() ?: emptyList(),
     albumId = mediaMetadata.extras?.getString(EXTRA_ALBUM_ID),
     albumName = mediaMetadata.albumTitle?.toString(),
+    albumArtist = mediaMetadata.extras?.getString(EXTRA_ALBUM_ARTIST),
     isExplicit = mediaMetadata.extras?.takeIf { it.containsKey(EXTRA_EXPLICIT) }
         ?.getBoolean(EXTRA_EXPLICIT),
     isVideo = mediaMetadata.extras?.getBoolean(EXTRA_IS_VIDEO) == true,
@@ -556,6 +559,7 @@ private const val EXTRA_PLAYBACK_SOURCE_ID = "bitchord.playbackSourceId"
  */
 private const val EXTRA_ARTIST_ID = "bitchord.artistId"
 private const val EXTRA_ALBUM_ID = "bitchord.albumId"
+private const val EXTRA_ALBUM_ARTIST = "bitchord.albumArtist"
 private const val EXTRA_ARTWORK_SOURCE = "bitchord.artworkSource"
 
 /** @see Song.setVideoId */
@@ -814,6 +818,7 @@ fun Song.toMediaItem(): MediaItem {
                             EXTRA_DURATION to durationText,
                             EXTRA_ARTIST_ID to artistId,
                             EXTRA_ALBUM_ID to albumId,
+                            EXTRA_ALBUM_ARTIST to albumArtist,
                             // Keep the original app-facing URI. artworkUri is
                             // converted above for notifications and must never
                             // become the player's artwork source on round-trip.

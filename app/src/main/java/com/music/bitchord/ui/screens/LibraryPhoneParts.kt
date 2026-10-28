@@ -10,7 +10,7 @@ import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Storage
@@ -24,6 +24,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.R
+import com.music.bitchord.BuildConfig
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.spotify_logo
 import com.music.bitchord.data.model.ShelfItem
@@ -41,8 +42,7 @@ import com.music.bitchord.ui.replay.ReplayStoryPage
 
 /**
  * The phone's folders, drawn as a list under the Replay cards: Downloads and
- * Local Music, the song cache when Settings has it shown, and the two remote
- * libraries it can reach.
+ * Local Music in upstream builds, the song cache, and configured remote libraries.
  */
 @Composable
 fun libraryLinks(): List<LibraryLink> {
@@ -71,14 +71,13 @@ fun libraryLinks(): List<LibraryLink> {
             stringResource(R.string.local_music),
             stringResource(R.string.audio_files_on_device),
             "local:all",
-        ),
-        // Opt-in from Settings → Storage: what the song cache is holding from
-        // YouTube and JioSaavn. See [com.music.bitchord.playback.AudioCache.cachedSongs].
+        ).takeUnless { BuildConfig.NAVIDROME_MODE },
+        // The native cache page is permanent in the Navidrome phone build.
         link(
             stringResource(R.string.cached_songs),
-            stringResource(R.string.cached_songs_subtitle),
+            stringResource(if (BuildConfig.NAVIDROME_MODE) R.string.navidrome_cached_songs_subtitle else R.string.cached_songs_subtitle),
             CACHE_FOLDER_BROWSE_ID,
-        ).takeIf { showCacheFolder },
+        ).takeIf { BuildConfig.NAVIDROME_MODE || showCacheFolder },
         // Only once set up in Sources; unconfigured, they'd just be dead ends.
         link(
             stringResource(R.string.webdav),
@@ -119,7 +118,7 @@ fun navidromeLibraryLinks(
 ): List<LibraryLink> = listOf(
     LibraryLink(
         ShelfItem(likedTitle, likedSubtitle, likedCoverUri, null, com.music.bitchord.data.navidrome.NavidromeIds.LIKED_SONGS_BROWSE_ID),
-        Icons.Rounded.Favorite,
+        Icons.Rounded.Star,
         customIcon = {
             Icon(
                 painter = painterResource(R.drawable.liked_icon),
@@ -127,7 +126,7 @@ fun navidromeLibraryLinks(
                 tint = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
                     .width(20.dp)
-                    .height(18.dp),
+                    .height(19.dp),
             )
         },
     ),

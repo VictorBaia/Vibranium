@@ -10,6 +10,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 internal interface NavidromeTransport {
@@ -22,7 +24,7 @@ internal interface NavidromeTransport {
 }
 
 internal class NavidromeClient(
-    private val http: HttpClient = defaultHttpClient(),
+    private val http: HttpClient = sharedHttpClient(),
 ) : NavidromeTransport {
     override suspend fun testConnection(config: NavidromeConfig): NavidromeConnectionResult {
         return when (val result = request(config, "ping")) {
@@ -43,26 +45,30 @@ internal class NavidromeClient(
         method: String,
         parameters: Map<String, String>,
     ): NavidromeApiResult<NavidromeResponse> {
-        val endpoint = runCatching { config.endpoint(method) }.getOrElse {
-            return NavidromeApiResult.InvalidEndpoint(it.message ?: "Invalid server endpoint")
-        }
         return try {
-            val form = Parameters.build {
-                NavidromeAuth.parameters(config.username, config.credential).forEach { (key, value) ->
-                    append(key, value)
+            withContext(Dispatchers.IO) {
+                val endpoint = runCatching { config.endpoint(method) }.getOrElse {
+                    return@withContext NavidromeApiResult.InvalidEndpoint(
+                        it.message ?: "Invalid server endpoint",
+                    )
                 }
-                parameters.forEach { (key, value) -> append(key, value) }
-            }
-            val httpResponse = http.submitForm(endpoint.toString(), form)
-            when (httpResponse.status) {
-                HttpStatusCode.Unauthorized ->
-                    NavidromeApiResult.InvalidCredentials("Server rejected the credentials")
-                HttpStatusCode.Forbidden -> NavidromeApiResult.Forbidden("Server denied this operation")
-                HttpStatusCode.NotFound -> NavidromeApiResult.NotFound("OpenSubsonic endpoint was not found")
-                else -> if (httpResponse.status.value !in 200..299) {
-                    NavidromeApiResult.Unreachable("Server returned HTTP ${httpResponse.status.value}")
-                } else {
-                    mapApiResponse(httpResponse.body<NavidromeEnvelope>().response)
+                val form = Parameters.build {
+                    NavidromeAuth.parameters(config.username, config.credential).forEach { (key, value) ->
+                        append(key, value)
+                    }
+                    parameters.forEach { (key, value) -> append(key, value) }
+                }
+                val httpResponse = http.submitForm(endpoint.toString(), form)
+                when (httpResponse.status) {
+                    HttpStatusCode.Unauthorized ->
+                        NavidromeApiResult.InvalidCredentials("Server rejected the credentials")
+                    HttpStatusCode.Forbidden -> NavidromeApiResult.Forbidden("Server denied this operation")
+                    HttpStatusCode.NotFound -> NavidromeApiResult.NotFound("OpenSubsonic endpoint was not found")
+                    else -> if (httpResponse.status.value !in 200..299) {
+                        NavidromeApiResult.Unreachable("Server returned HTTP ${httpResponse.status.value}")
+                    } else {
+                        mapApiResponse(httpResponse.body<NavidromeEnvelope>().response)
+                    }
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -98,6 +104,15 @@ internal class NavidromeClient(
         )
 
     companion object {
+        /** Build the Ktor engine once, off the UI thread during app startup. */
+        internal fun initialize() {
+            sharedHttpClient()
+        }
+
+        private val sharedClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED, ::defaultHttpClient)
+
+        private fun sharedHttpClient(): HttpClient = sharedClient
+
         private fun defaultHttpClient(): HttpClient = HttpClient(OkHttp) {
             expectSuccess = false
             install(ContentNegotiation) { json(NavidromeJson.parser) }

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.music.bitchord.data.DebugLog as Log
@@ -62,7 +63,8 @@ object LocalMediaRepository {
     }
 
     /**
-     * Retrieves all songs in the `Music/BitChord` directory, combining app downloads
+     * Retrieves all songs in `Music/Vibranium`, plus files left in the old
+     * `Music/BitChord` directory, combining app downloads
      * with any local audio files present in that folder.
      *
      * The download record is the better source for a title and a credit — it
@@ -92,8 +94,12 @@ object LocalMediaRepository {
                     MediaStore.Audio.Media.DATE_ADDED,
                     MediaStore.Audio.Media.DATE_MODIFIED,
                 )
-                val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
-                val selectionArgs = arrayOf("%${DownloadStore.FOLDER}%")
+                val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? OR " +
+                    "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(
+                    "${Environment.DIRECTORY_MUSIC}/${DownloadStore.FOLDER}/%",
+                    "${Environment.DIRECTORY_MUSIC}/BitChord/%",
+                )
 
                 context.contentResolver.query(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -132,13 +138,12 @@ object LocalMediaRepository {
                     }
                 }
             } else {
-                val folder = File(
-                    android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_MUSIC,
-                    ),
-                    DownloadStore.FOLDER,
+                val music = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_MUSIC,
                 )
-                if (folder.exists() && folder.isDirectory) {
+                listOf(DownloadStore.FOLDER, "BitChord").distinct().forEach { folderName ->
+                    val folder = File(music, folderName)
+                    if (!folder.exists() || !folder.isDirectory) return@forEach
                     folder.listFiles()?.forEach { file ->
                         if (file.isFile && isAudioFileName(file.name)) {
                             val uriStr = Uri.fromFile(file).toString()
@@ -157,7 +162,7 @@ object LocalMediaRepository {
                     }
                 }
             }
-        }.onFailure { Log.w(TAG, "Failed scanning Music/BitChord directory: ${it.message}") }
+        }.onFailure { Log.w(TAG, "Failed scanning Vibranium music folders: ${it.message}") }
 
         val filled = appDownloads.map { song ->
             val uri = song.localUri ?: return@map song
@@ -206,7 +211,8 @@ object LocalMediaRepository {
 
         val songs = mutableListOf<Song>()
         // This scan runs over every audio file on the device, which includes
-        // whatever this app has downloaded into Music/BitChord alongside
+        // whatever this app has downloaded into Music/Vibranium or the old
+        // Music/BitChord folder alongside
         // everything else — but by content URI, the only thing MediaStore
         // offers here, that download is indistinguishable from a file the
         // user copied on by hand. Reversing [Downloads.saved] hands a

@@ -16,8 +16,14 @@ import com.music.bitchord.data.lyrics.LyricLine
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 internal data class NavidromeCatalogueLabels(
     val newest: String,
@@ -37,21 +43,53 @@ internal data class NavidromeCatalogueLabels(
 internal class NavidromeCatalogue(
     private val repository: NavidromeRepository,
 ) {
-    suspend fun home(labels: NavidromeCatalogueLabels): Result<List<HomeShelf>> = supervisorScope {
+    suspend fun home(
+        labels: NavidromeCatalogueLabels,
+        onShelf: (index: Int, shelf: HomeShelf) -> Unit = { _, _ -> },
+    ): Result<List<HomeShelf>> = supervisorScope {
         val requests = listOf(
-            async { repository.albums(NavidromeAlbumListType.NEWEST).valueOrThrow() },
-            async { repository.albums(NavidromeAlbumListType.RECENT).valueOrThrow() },
-            async { repository.albums(NavidromeAlbumListType.FREQUENT).valueOrThrow() },
-            async { repository.albums(NavidromeAlbumListType.RANDOM).valueOrThrow() },
+            NavidromeAlbumListType.NEWEST to labels.newest,
+            NavidromeAlbumListType.RECENT to labels.recentlyPlayed,
+            NavidromeAlbumListType.FREQUENT to labels.frequentlyPlayed,
+            NavidromeAlbumListType.RANDOM to labels.randomAlbums,
         )
-        runCatching {
-            val (newest, recent, frequent, random) = requests.awaitAll()
-            listOf(
-                albumShelf(labels.newest, newest),
-                albumShelf(labels.recentlyPlayed, recent),
-                albumShelf(labels.frequentlyPlayed, frequent),
-                albumShelf(labels.randomAlbums, random),
-            ).filter { it.items.isNotEmpty() }
+        // Avoid four large JSON bodies being decoded and mapped at the same
+        // time during cold start. Results still publish as soon as each query
+        // completes, with the initial shelves given priority by list order.
+        val albumRequests = Semaphore(2)
+        val completed = Channel<Pair<Int, Result<HomeShelf>>>(requests.size)
+        requests.forEachIndexed { index, (type, title) ->
+            launch {
+                completed.send(index to runCatching {
+                    val albums = albumRequests.withPermit {
+                        repository.albums(type).valueOrThrow()
+                    }
+                    withContext(Dispatchers.Default) { albumShelf(title, albums) }
+                })
+            }
+        }
+        val shelves = arrayOfNulls<HomeShelf>(requests.size)
+        var failures = 0
+        var firstFailure: Throwable? = null
+        repeat(requests.size) {
+            val (index, result) = completed.receive()
+            result.fold(
+                onSuccess = { shelf ->
+                    if (shelf.items.isNotEmpty()) {
+                        shelves[index] = shelf
+                        onShelf(index, shelf)
+                    }
+                },
+                onFailure = { failure ->
+                    failures++
+                    if (firstFailure == null) firstFailure = failure
+                },
+            )
+        }
+        val available = shelves.filterNotNull()
+        when {
+            available.isNotEmpty() || failures == 0 -> Result.success(available)
+            else -> Result.failure(checkNotNull(firstFailure))
         }
     }
 
@@ -71,19 +109,24 @@ internal class NavidromeCatalogue(
             // its order and mapped metadata intact; the phone Library exposes
             // it as a first-class text row rather than pretending it is one of
             // the user's playlists.
-            val likedSongs = favourites.song
-                .sortedByDescending { it.starred.orEmpty() }
-                .map(NavidromeMapper::song)
-            val playlistItems = playlistShelf(labels.playlists, playlists.await()).items
-            LibraryPage(
-                likedSongs = likedSongs,
-                librarySongs = likedSongs,
-                shelves = listOf(
-                    albumShelf(labels.albums, albums.await()),
-                    artistShelf(labels.artists, artists.await()),
-                    HomeShelf(labels.playlists, playlistItems),
-                ).filter { it.items.isNotEmpty() },
-            )
+            val rawPlaylists = playlists.await()
+            val rawArtists = artists.await()
+            val rawAlbums = albums.await()
+            withContext(Dispatchers.Default) {
+                val likedSongs = favourites.song
+                    .sortedByDescending { it.starred.orEmpty() }
+                    .map(NavidromeMapper::song)
+                val playlistItems = playlistShelf(labels.playlists, rawPlaylists).items
+                LibraryPage(
+                    likedSongs = likedSongs,
+                    librarySongs = likedSongs,
+                    shelves = listOf(
+                        albumShelf(labels.albums, rawAlbums),
+                        artistShelf(labels.artists, rawArtists),
+                        HomeShelf(labels.playlists, playlistItems),
+                    ).filter { it.items.isNotEmpty() },
+                )
+            }
         }
     }
 
@@ -126,6 +169,26 @@ internal class NavidromeCatalogue(
         catalogueRows + playlists
     }
 
+    /** A small, mixed search for the native search dropdown while typing. */
+    suspend fun searchTypeahead(query: String): Result<List<SearchResult>> = runCatching {
+        val result = repository.search(query, artistCount = 8, albumCount = 8, songCount = 12).valueOrThrow()
+        val artists = result.artist.filter(NavidromeMapper::isAlbumArtist)
+            .map { SearchResult.Browse(NavidromeMapper.artist(it)) }
+        val albums = result.album.map { SearchResult.Browse(NavidromeMapper.album(it)) }
+        val songs = result.song.map { SearchResult.Track(NavidromeMapper.song(it)) }
+        // Reserve room for every media kind before filling unused slots. The
+        // dropdown shows 15 rows; server order can otherwise let one kind
+        // occupy all 15 and hide the others entirely.
+        buildList<SearchResult> {
+            addAll(artists.take(3))
+            addAll(albums.take(4))
+            addAll(songs.take(8))
+            addAll(artists.drop(3))
+            addAll(albums.drop(4))
+            addAll(songs.drop(8))
+        }.take(15)
+    }
+
     suspend fun detail(
         browseId: String,
         fallbackTitle: String,
@@ -137,6 +200,8 @@ internal class NavidromeCatalogue(
         relatedArtistsTitle: String = "Related artists",
         moreFromArtistTitle: String = "More from %s",
         relatedAlbumsTitle: String = "Related albums",
+        onArtistOverview: ((DetailPage) -> Unit)? = null,
+        onAlbumOverview: ((DetailPage) -> Unit)? = null,
     ): Result<DetailPage> = runCatching {
         if (browseId == NavidromeIds.LIKED_SONGS_BROWSE_ID) {
             val songs = repository.starred().valueOrThrow().song
@@ -161,6 +226,7 @@ internal class NavidromeCatalogue(
                 fallbackArtwork = fallbackArtwork,
                 moreFromArtistTitle = moreFromArtistTitle,
                 relatedAlbumsTitle = relatedAlbumsTitle,
+                onOverview = onAlbumOverview,
             )
             NavidromeEntity.PLAYLIST -> repository.playlist(parsed.rawId).valueOrThrow().let { playlist ->
                 DetailPage(
@@ -182,6 +248,7 @@ internal class NavidromeCatalogue(
                 singleSectionTitle = singleSectionTitle,
                 epSectionTitle = epSectionTitle,
                 relatedArtistsTitle = relatedArtistsTitle,
+                onOverview = onArtistOverview,
             )
             NavidromeEntity.GENRE -> {
                 val songs = repository.songsByGenre(parsed.rawId).valueOrThrow().map(NavidromeMapper::song)
@@ -207,6 +274,7 @@ internal class NavidromeCatalogue(
         fallbackArtwork: String?,
         moreFromArtistTitle: String,
         relatedAlbumsTitle: String,
+        onOverview: ((DetailPage) -> Unit)?,
     ): DetailPage = coroutineScope {
         val album = repository.album(rawId).valueOrThrow()
         val orderedSongs = album.song.withIndex()
@@ -215,7 +283,21 @@ internal class NavidromeCatalogue(
                     .thenBy { it.value.track ?: Int.MAX_VALUE }
                     .thenBy { it.index },
             )
-            .map { NavidromeMapper.song(it.value) }
+            .map { NavidromeMapper.song(it.value).copy(
+                albumArtist = it.value.albumArtist ?: album.artist,
+            ) }
+        val overview = DetailPage(
+            browseId = browseId,
+            title = album.displayName.ifBlank { fallbackTitle },
+            subtitle = listOfNotNull(
+                album.artist?.takeIf(String::isNotBlank) ?: fallbackSubtitle.takeIf(String::isNotBlank),
+                album.year?.toString(),
+            ).joinToString(" • "),
+            thumbnailUrl = album.coverArt?.let(NavidromeArtwork::uri) ?: fallbackArtwork,
+            songs = songsState(orderedSongs),
+            type = BrowseType.ALBUM,
+        )
+        onOverview?.invoke(overview)
         val artistId = album.artistId
         val albumInfo = async {
             (repository.albumInfo2(rawId) as? NavidromeApiResult.Success)?.value
@@ -266,16 +348,7 @@ internal class NavidromeCatalogue(
             withoutCurrent(relatedAlbums.await()).takeIf { it.isNotEmpty() }
                 ?.let { add(albumShelf(relatedAlbumsTitle, it)) }
         }
-        DetailPage(
-            browseId = browseId,
-            title = album.displayName.ifBlank { fallbackTitle },
-            subtitle = listOfNotNull(
-                album.artist?.takeIf(String::isNotBlank) ?: fallbackSubtitle.takeIf(String::isNotBlank),
-                album.year?.toString(),
-            ).joinToString(" • "),
-            thumbnailUrl = album.coverArt?.let(NavidromeArtwork::uri) ?: fallbackArtwork,
-            songs = songsState(orderedSongs),
-            type = BrowseType.ALBUM,
+        overview.copy(
             sections = sections,
             description = notes ?: editorialDescription,
         )
@@ -296,15 +369,13 @@ internal class NavidromeCatalogue(
         singleSectionTitle: String = "Singles",
         epSectionTitle: String = "EPs",
         relatedArtistsTitle: String = "Related artists",
+        onOverview: ((DetailPage) -> Unit)? = null,
     ): Result<DetailPage> = runCatching {
-        val needle = artistName.trim()
-        require(needle.isNotEmpty()) { "Artist name is required" }
-        val artist = repository.artists().valueOrThrow()
-            .firstOrNull { it.name.equals(needle, ignoreCase = true) }
-            ?: error("Artist not found in Navidrome: $artistName")
+        val browseId = artistBrowseIdByName(artistName).getOrThrow()
+        val rawId = checkNotNull(NavidromeIds.parse(browseId)).rawId
         artistDetail(
-            rawId = artist.id,
-            browseId = NavidromeIds.artist(artist.id),
+            rawId = rawId,
+            browseId = browseId,
             fallbackTitle = fallbackTitle,
             fallbackSubtitle = fallbackSubtitle,
             fallbackArtwork = fallbackArtwork,
@@ -312,7 +383,18 @@ internal class NavidromeCatalogue(
             singleSectionTitle = singleSectionTitle,
             epSectionTitle = epSectionTitle,
             relatedArtistsTitle = relatedArtistsTitle,
+            onOverview = onOverview,
         )
+    }
+
+    /** Resolve an external artist name to this account's canonical Navidrome ID. */
+    suspend fun artistBrowseIdByName(artistName: String): Result<String> = runCatching {
+        val needle = artistName.trim()
+        require(needle.isNotEmpty()) { "Artist name is required" }
+        val artist = repository.artists().valueOrThrow()
+            .firstOrNull { it.name.equals(needle, ignoreCase = true) }
+            ?: error("Artist not found in Navidrome: $artistName")
+        NavidromeIds.artist(artist.id)
     }
 
     private suspend fun artistDetail(
@@ -325,14 +407,12 @@ internal class NavidromeCatalogue(
         singleSectionTitle: String,
         epSectionTitle: String,
         relatedArtistsTitle: String,
+        onOverview: ((DetailPage) -> Unit)?,
     ): DetailPage = coroutineScope {
         val artist = repository.artist(rawId).valueOrThrow()
         // Artist enrichment is optional in Navidrome: it needs the server's
         // external integrations, so a missing endpoint must not turn a usable
         // local artist page into an error state.
-        val info = async {
-            (repository.artistInfo2(rawId) as? NavidromeApiResult.Success)?.value
-        }
         // Navidrome returns the artist's complete release list. Keep the
         // newest release first so the artist page's existing TopReleaseCard
         // can represent the actual latest album, EP, or single from this
@@ -341,26 +421,89 @@ internal class NavidromeCatalogue(
             compareByDescending<NavidromeAlbum> { it.year ?: Int.MIN_VALUE }
                 .thenByDescending { it.created.orEmpty() },
         )
+        val shelves = artistReleaseShelves(
+            albums = albums,
+            albumTitle = albumSectionTitle,
+            singleTitle = singleSectionTitle,
+            epTitle = epSectionTitle,
+        )
+        val accountKey = (NavidromeStore.state.value as? NavidromeStore.State.Configured)
+            ?.config?.accountKey ?: "unconfigured"
+        val savedServerFacts = NavidromeArtistEnrichment.cachedServer("$accountKey:$rawId")
+        val cachedFacts = NavidromeArtistEnrichment.cached("$accountKey:$rawId")
+        val overview = DetailPage(
+            browseId = browseId,
+            title = artist.name.ifBlank { fallbackTitle },
+            subtitle = fallbackSubtitle,
+            thumbnailUrl = savedServerFacts?.image
+                ?: artist.artistImageUrl
+                ?: artist.coverArt?.let(NavidromeArtwork::uri)
+                ?: cachedFacts?.image
+                ?: fallbackArtwork,
+            songs = UiState.Loading,
+            type = BrowseType.ARTIST,
+            sections = shelves,
+            description = savedServerFacts?.description ?: cachedFacts?.description,
+            monthlyListenerCount = cachedFacts?.monthlyListeners,
+        )
+        onOverview?.invoke(overview)
+        val info = async {
+            (repository.artistInfo2(rawId) as? NavidromeApiResult.Success)?.value.also { facts ->
+                if (facts != null) {
+                    NavidromeArtistEnrichment.saveServer(
+                        "$accountKey:$rawId",
+                        facts.largeImageUrl ?: facts.mediumImageUrl,
+                        facts.biography,
+                    )
+                    onOverview?.invoke(overview.copy(
+                        thumbnailUrl = facts.largeImageUrl ?: facts.mediumImageUrl ?: overview.thumbnailUrl,
+                        description = facts.biography ?: overview.description,
+                    ))
+                }
+            }
+        }
+        val enrichment = async {
+            withTimeoutOrNull(2_000L) {
+                NavidromeArtistEnrichment.find(
+                    cacheId = "$accountKey:$rawId",
+                    name = artist.name,
+                    albums = albums.map(NavidromeAlbum::displayName).toSet(),
+                    tracks = emptySet(),
+                )
+            }
+        }
+        // A large library can have hundreds of releases. Limit concurrent
+        // album requests so artwork, video and artist-info requests still get
+        // a connection, and a single unavailable album does not blank the page.
+        val albumRequests = Semaphore(8)
         val songs = albums.map { album ->
-            async { repository.album(album.id).valueOrThrow().song.map(NavidromeMapper::song) }
+            async {
+                albumRequests.withPermit {
+                    (repository.album(album.id) as? NavidromeApiResult.Success)
+                        ?.value?.song.orEmpty().map(NavidromeMapper::song)
+                }
+            }
         }.awaitAll().flatten().distinctBy(Song::videoId)
         val externalInfo = info.await()
+        onOverview?.invoke(DetailPage(
+            browseId = browseId,
+            title = artist.name.ifBlank { fallbackTitle },
+            subtitle = fallbackSubtitle,
+            thumbnailUrl = externalInfo?.largeImageUrl
+                ?: externalInfo?.mediumImageUrl
+                ?: artist.artistImageUrl
+                ?: artist.coverArt?.let(NavidromeArtwork::uri)
+                ?: fallbackArtwork,
+            songs = songsState(songs),
+            type = BrowseType.ARTIST,
+            sections = shelves,
+            description = externalInfo?.biography,
+        ))
         // Navidrome itself does not expose monthly listeners. The integration
         // used by the original artist page supplies only presentation facts
         // (photo, bio and listener count) after confirming a matching release;
         // catalogue tracks and releases stay entirely server-native.
-        val enrichment = withTimeoutOrNull(2_000L) {
-            val accountKey = (NavidromeStore.state.value as? NavidromeStore.State.Configured)
-                ?.config
-                ?.accountKey
-                ?: "unconfigured"
-            NavidromeArtistEnrichment.find(
-                cacheId = "$accountKey:$rawId",
-                name = artist.name,
-                albums = albums.map(NavidromeAlbum::displayName).toSet(),
-                tracks = emptySet(),
-            )
-        }
+        val enriched = enrichment.await()
         val related = externalInfo?.similarArtist
             .orEmpty()
             .asSequence()
@@ -369,7 +512,7 @@ internal class NavidromeCatalogue(
             .map { relatedArtist ->
                 ShelfItem(
                     title = relatedArtist.name,
-                    subtitle = relatedArtist.albumCount?.toString().orEmpty(),
+                    subtitle = "",
                     thumbnailUrl = relatedArtist.coverArt?.let(NavidromeArtwork::uri)
                         ?: relatedArtist.artistImageUrl,
                     videoId = null,
@@ -389,20 +532,15 @@ internal class NavidromeCatalogue(
                 ?: externalInfo?.mediumImageUrl
                 ?: artist.coverArt?.let(NavidromeArtwork::uri)
                 ?: artist.artistImageUrl
-                ?: enrichment?.image
+                ?: enriched?.image
                 ?: fallbackArtwork,
             songs = songsState(songs),
             type = BrowseType.ARTIST,
-            sections = artistReleaseShelves(
-                albums = albums,
-                albumTitle = albumSectionTitle,
-                singleTitle = singleSectionTitle,
-                epTitle = epSectionTitle,
-            ),
+            sections = shelves,
             relatedArtists = related.takeIf { it.isNotEmpty() }
                 ?.let { HomeShelf(relatedArtistsTitle, it) },
-            description = externalInfo?.biography ?: enrichment?.description,
-            monthlyListenerCount = enrichment?.monthlyListeners,
+            description = externalInfo?.biography ?: enriched?.description,
+            monthlyListenerCount = enriched?.monthlyListeners,
         )
     }
 
@@ -565,16 +703,7 @@ internal class NavidromeCatalogue(
         artists.map { artist ->
             ShelfItem(
                 artist.name,
-                // `getArtist` may include releases while an artist list only
-                // contains Navidrome's aggregate albumCount. Whenever the
-                // releases are available, derive this number from the same
-                // bucket rule as the page so Singles and EPs never inflate the
-                // Albums count presented by the app.
-                artist.album
-                    .takeIf { it.isNotEmpty() }
-                    ?.count { it.releaseBucket() == NavidromeReleaseBucket.ALBUM }
-                    ?.toString()
-                    ?: artist.albumCount?.toString().orEmpty(),
+                "",
                 artist.coverArt?.let(NavidromeArtwork::uri) ?: artist.artistImageUrl,
                 null,
                 NavidromeIds.artist(artist.id),
@@ -617,12 +746,22 @@ internal class NavidromeCatalogue(
 }
 
 internal object AppNavidromeCatalogue {
-    val current: NavidromeCatalogue
-        get() = NavidromeCatalogue(
+    private val catalogue by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        NavidromeCatalogue(
             NavidromeRepository(config = {
                 (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
             }),
         )
+    }
+
+    /** Initialize the reusable catalogue and HTTP engine away from the UI thread. */
+    fun initialize() {
+        NavidromeClient.initialize()
+        catalogue
+    }
+
+    val current: NavidromeCatalogue
+        get() = catalogue
 }
 
 internal class NavidromeCatalogueException(message: String) : Exception(message)

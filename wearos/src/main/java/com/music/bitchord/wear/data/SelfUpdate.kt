@@ -75,7 +75,7 @@ object SelfUpdate {
         return hash
     }
 
-    private fun incoming(context: Context) = File(context.cacheDir, "update/BitChord.apk")
+    private fun incoming(context: Context) = File(context.cacheDir, "update/Vibranium.apk")
 
     /**
      * A newer APK arriving on [P.PATH_APK].
@@ -191,7 +191,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> SelfUpdate.done(context)
             else -> Log.w(
-                "BitChordWear",
+                "VibraniumWear",
                 "update failed: ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}",
             )
         }

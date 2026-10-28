@@ -1287,7 +1287,7 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
 
         if (com.music.bitchord.data.innertube.Innertube.cookie == null) {
-            com.music.bitchord.data.innertube.Innertube.cookie = com.music.bitchord.auth.AuthStore(this).cookie
+            com.music.bitchord.data.innertube.Innertube.cookie = com.music.bitchord.BitChordApplication.authStore.cookie
         }
 
         // First, because everything below assumes it is standing up fresh and
@@ -1955,13 +1955,15 @@ class PlaybackService : MediaLibraryService() {
 
     /** Favorite and Shuffle: the only actions shown on the phone notification. */
     private fun notificationButtons(): List<CommandButton> {
+        val liked = LikeState.overrides.value[player?.currentMediaItem?.mediaId] == LikeStatus.LIKE
+        // Media3 prefers its bundled icon whenever a predefined icon is set.
+        // ICON_UNDEFINED makes the original BitChord drawable authoritative.
         val favorite = if (!canLike(player?.currentMediaItem)) null else CommandButton.Builder(
-            if (LikeState.overrides.value[player?.currentMediaItem?.mediaId] == LikeStatus.LIKE) {
-                CommandButton.ICON_HEART_FILLED
-            } else {
-                CommandButton.ICON_HEART_UNFILLED
-            },
+            CommandButton.ICON_UNDEFINED,
         )
+            .setCustomIconResId(
+                if (liked) R.drawable.ic_notification_star_filled else R.drawable.ic_notification_star,
+            )
             .setSessionCommand(favoriteCommand)
             .setDisplayName("Favorite")
             .build()
@@ -2672,7 +2674,10 @@ class PlaybackService : MediaLibraryService() {
         val selectedIndex = registered.songs.indexOfFirst { it.contextEntryKey() == selectedKey }
             .takeIf { it >= 0 } ?: 0
         val shuffle = request.shuffle
-        val window = QueueWindow(registered.songs.size).startAt(selectedIndex, shuffle)
+        // Each new session needs a fresh permutation. QueueWindow's default
+        // seed is fixed for reproducible snapshots, so supply one here.
+        val window = QueueWindow(registered.songs.size, kotlin.random.Random.nextLong())
+            .startAt(selectedIndex, shuffle)
 
         boundedContinuationJob?.cancel()
         boundedContextWindow = window

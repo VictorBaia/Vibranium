@@ -99,6 +99,7 @@ internal data class NavidromeSong(
     val title: String,
     val album: String? = null,
     val albumId: String? = null,
+    val albumArtist: String? = null,
     val artist: String? = null,
     val artistId: String? = null,
     val coverArt: String? = null,

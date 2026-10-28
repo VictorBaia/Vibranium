@@ -202,7 +202,7 @@ object AppSettings {
     val wifiOnlyDownloads = MutableStateFlow(true)
 
     /**
-     * Keep ordinary downloads in Music/BitChord where other music apps can see
+     * Keep ordinary downloads in Music/Vibranium where other music apps can see
      * them. Off (the default) keeps downloads in this app's private storage.
      * HLS downloads always stay private because they are a playlist package,
      * not one portable audio file.
@@ -399,7 +399,7 @@ object AppSettings {
     /** Analyzes audio waveform/envelope to align matching playback moment between versions. */
     val smartVersionAlignment = MutableStateFlow(true)
 
-    /** Drops haze blur (status bar, mini player, bottom fade, lyrics focus) for a solid-fill look. */
+    /** Drops live backdrop sampling for a solid-fill look on the startup/home surfaces. */
     val reduceDynamicBlur = MutableStateFlow(false)
 
     /** Real backdrop-sampled glass (blur, lens refraction) on the floating nav bar, Android 12+ only. */
@@ -901,10 +901,8 @@ object AppSettings {
         paxSenixApiKey.value = prefs.getString(KEY_PAXSENIX_API_KEY, "").orEmpty()
         com.music.bitchord.data.lyrics.PaxSenix.setApiKey(paxSenixApiKey.value)
         audioCacheLimitBytes.value = clampCacheLimit(prefs.getLong(KEY_CACHE_LIMIT, DEFAULT_CACHE_LIMIT_BYTES))
-        imageCacheLimitBytes.value = prefs.getLong(KEY_IMAGE_CACHE_LIMIT, DEFAULT_IMAGE_CACHE_LIMIT_BYTES)
-            .coerceIn(MIN_IMAGE_CACHE_LIMIT_BYTES, MAX_IMAGE_CACHE_LIMIT_BYTES)
-        videoCacheLimitBytes.value = prefs.getLong(KEY_VIDEO_CACHE_LIMIT, DEFAULT_VIDEO_CACHE_LIMIT_BYTES)
-            .coerceIn(MIN_VIDEO_CACHE_LIMIT_BYTES, MAX_VIDEO_CACHE_LIMIT_BYTES)
+        imageCacheLimitBytes.value = clampCacheLimit(prefs.getLong(KEY_IMAGE_CACHE_LIMIT, DEFAULT_IMAGE_CACHE_LIMIT_BYTES))
+        videoCacheLimitBytes.value = clampCacheLimit(prefs.getLong(KEY_VIDEO_CACHE_LIMIT, DEFAULT_VIDEO_CACHE_LIMIT_BYTES))
         showCacheFolder.value = prefs.getBoolean(KEY_SHOW_CACHE_FOLDER, false)
         lastfmEnabled.value = prefs.getBoolean(KEY_LASTFM_ENABLED, false)
         lastfmUsername.value = prefs.getString(KEY_LASTFM_USERNAME, "").orEmpty()
@@ -1493,13 +1491,13 @@ object AppSettings {
     }
 
     fun setImageCacheLimitBytes(value: Long) {
-        val clamped = value.coerceIn(MIN_IMAGE_CACHE_LIMIT_BYTES, MAX_IMAGE_CACHE_LIMIT_BYTES)
+        val clamped = clampCacheLimit(value)
         imageCacheLimitBytes.value = clamped
         prefs.edit().putLong(KEY_IMAGE_CACHE_LIMIT, clamped).apply()
     }
 
     fun setVideoCacheLimitBytes(value: Long) {
-        val clamped = value.coerceIn(MIN_VIDEO_CACHE_LIMIT_BYTES, MAX_VIDEO_CACHE_LIMIT_BYTES)
+        val clamped = clampCacheLimit(value)
         videoCacheLimitBytes.value = clamped
         prefs.edit().putLong(KEY_VIDEO_CACHE_LIMIT, clamped).apply()
     }
@@ -1983,13 +1981,13 @@ object AppSettings {
     )
 
     const val DEFAULT_CACHE_LIMIT_BYTES = 512L * 1024 * 1024
-    const val MAX_CACHE_LIMIT_BYTES = 12L * 1024 * 1024 * 1024
+    const val MAX_CACHE_LIMIT_BYTES = 20L * 1024 * 1024 * 1024
     const val MIN_IMAGE_CACHE_LIMIT_BYTES = 512L * 1024 * 1024
     const val DEFAULT_IMAGE_CACHE_LIMIT_BYTES = 2L * 1024 * 1024 * 1024
-    const val MAX_IMAGE_CACHE_LIMIT_BYTES = 12L * 1024 * 1024 * 1024
+    const val MAX_IMAGE_CACHE_LIMIT_BYTES = 20L * 1024 * 1024 * 1024
     const val MIN_VIDEO_CACHE_LIMIT_BYTES = 512L * 1024 * 1024
     const val DEFAULT_VIDEO_CACHE_LIMIT_BYTES = 512L * 1024 * 1024
-    const val MAX_VIDEO_CACHE_LIMIT_BYTES = 12L * 1024 * 1024 * 1024
+    const val MAX_VIDEO_CACHE_LIMIT_BYTES = 20L * 1024 * 1024 * 1024
 
     /** The cache limit with no ceiling: only free storage bounds it. */
     const val UNLIMITED_CACHE_LIMIT_BYTES = Long.MAX_VALUE

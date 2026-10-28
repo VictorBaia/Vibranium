@@ -54,8 +54,10 @@ val listenTogetherServer: String = (
         ?: "https://bitchord-listen-together.onrender.com"
     ).trim().trimEnd('/')
 
-// See the root build.gradle.kts: one version for the phone and its watch app.
-val betaSuffix = rootProject.extra["bitchordBetaSuffix"] as String
+// The phone's numeric version comes from the root build.gradle.kts.
+// The Navidrome phone carries the current 1.8.1 source and is installed as a
+// standalone fork. The upstream beta marker belongs to upstream test builds.
+val betaSuffix = ""
 
 android {
     namespace = "com.music.bitchord"
@@ -85,7 +87,7 @@ android {
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.
-        buildConfigField("String", "UPDATE_APK_PREFIX", "\"BitChord-\"")
+        buildConfigField("String", "UPDATE_APK_PREFIX", "\"Vibranium-\"")
     }
 
     splits {
@@ -118,7 +120,7 @@ android {
         create("dev") {
             dimension = "env"
             applicationId = "com.dev.bitchord"
-            resValue("string", "app_name", "BitChord Dev")
+            resValue("string", "app_name", "Vibranium Dev")
         }
         create("prod") {
             dimension = "env"
@@ -508,9 +510,16 @@ abstract class BundleWearApk : DefaultTask() {
         val out = outputDir.get().asFile.resolve("wear")
         out.deleteRecursively()
         out.mkdirs()
-        val apk = apks.asFileTree.matching { include("*.apk") }.files.singleOrNull()
-            ?: throw GradleException("Expected exactly one watch APK in ${apks.files}")
-        val target = out.resolve("BitChordWear.apk")
+        val candidates = apks.asFileTree.matching { include("*.apk") }.files
+        // The Wear module splits by ABI and also emits a universal APK. The
+        // phone bundles that universal artifact so it can install the watch
+        // companion regardless of the watch CPU architecture.
+        val apk = candidates
+            .filter { it.nameWithoutExtension.endsWith("-universal") }
+            .maxByOrNull { it.lastModified() }
+            ?: candidates.maxByOrNull { it.lastModified() }
+            ?: throw GradleException("Expected a watch APK in ${apks.files}; found: ${candidates.map { it.name }}")
+        val target = out.resolve("VibraniumWear.apk")
         apk.copyTo(target, overwrite = true)
         val digest = MessageDigest.getInstance("SHA-256")
         target.inputStream().use { input ->
@@ -521,7 +530,7 @@ abstract class BundleWearApk : DefaultTask() {
                 digest.update(buffer, 0, read)
             }
         }
-        out.resolve("BitChordWear.sha256").writeText(digest.digest().joinToString("") { "%02x".format(it) })
+        out.resolve("VibraniumWear.sha256").writeText(digest.digest().joinToString("") { "%02x".format(it) })
     }
 }
 
@@ -534,7 +543,13 @@ if (providers.gradleProperty("bitchord.bundleWear").orNull != "false" && findPro
         val cap = variant.name.replaceFirstChar { it.uppercase() }
         val bundle = tasks.register<BundleWearApk>("bundleWearApk$cap") {
             dependsOn(":wearos:assemble$cap")
-            apks.from(rootProject.layout.projectDirectory.dir("wearos/build/outputs/apk/$flavor/$type"))
+            // AGP 8.10 writes the signed APK used for embedding under
+            // intermediates/apk; some IDE/build configurations also expose a
+            // copy under outputs/apk. Accept both locations.
+            apks.from(
+                rootProject.layout.projectDirectory.dir("wearos/build/intermediates/apk/$flavor/$type"),
+                rootProject.layout.projectDirectory.dir("wearos/build/outputs/apk/$flavor/$type"),
+            )
         }
         variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleWearApk::outputDir)
     }

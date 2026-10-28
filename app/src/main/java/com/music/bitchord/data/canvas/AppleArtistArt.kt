@@ -1,5 +1,6 @@
 package com.music.bitchord.data.canvas
 
+import android.content.Context
 import com.music.bitchord.data.DebugLog as Log
 import com.music.bitchord.data.Http
 import androidx.compose.ui.graphics.Color
@@ -7,12 +8,16 @@ import com.music.bitchord.ui.theme.ArtworkKeyColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * What Apple Music's artist page shows at the top: a hero photograph, usually
@@ -61,6 +66,9 @@ object AppleArtistArtRepository {
     private const val CACHE_SIZE = 64
     private const val HERO_WIDTH = 1200
     private const val LOGO_WIDTH = 1000
+    private val DISK_TTL_MS = TimeUnit.HOURS.toMillis(24)
+    private var diskCache: android.content.SharedPreferences? = null
+    private val lookupLocks = ConcurrentHashMap<String, Mutex>()
     private const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -68,6 +76,10 @@ object AppleArtistArtRepository {
     private val cache = object : LinkedHashMap<String, AppleArtistArt>(CACHE_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AppleArtistArt>) =
             size > CACHE_SIZE
+    }
+
+    fun init(context: Context) {
+        diskCache = context.applicationContext.getSharedPreferences("apple_artist_art", Context.MODE_PRIVATE)
     }
 
     private val _updates = MutableStateFlow(0)
@@ -85,23 +97,53 @@ object AppleArtistArtRepository {
      */
     fun cached(artistName: String): AppleArtistArt? {
         val key = artistName.normalized()
-        return synchronized(cache) { cache[key] }
+        synchronized(cache) { cache[key] }?.let { return it }
+        val json = diskCache?.getString(key, null)?.let {
+            runCatching { JSONObject(it) }.getOrNull()
+        } ?: return null
+        if (System.currentTimeMillis() - json.optLong("at") > DISK_TTL_MS) return null
+        val hero = json.optString("hero").takeIf(String::isNotBlank) ?: return null
+        val art = AppleArtistArt(
+            heroUrl = hero,
+            logoUrl = json.optString("logo").takeIf(String::isNotBlank),
+            logoAspect = json.optDouble("aspect", 1.0).toFloat(),
+            videoUrl = json.optString("video").takeIf(String::isNotBlank),
+            background = json.optInt("background"),
+            accent = json.optInt("accent"),
+            keyColor = if (json.has("keyColor")) json.optInt("keyColor") else null,
+        )
+        synchronized(cache) { cache[key] = art }
+        return art
     }
 
     /** The header art for [artistName], or null when Apple has none. Never throws. */
     suspend fun artFor(artistName: String): AppleArtistArt? {
         val key = artistName.normalized()
         if (key.isEmpty()) return null
-        synchronized(cache) { cache[key] }?.let { return it }
-
+        cached(artistName)?.let { return it }
+        return lookupLocks.computeIfAbsent(key) { Mutex() }.withLock {
+        // A search result may prefetch at the same instant the detail screen
+        // asks for this artist. Recheck after the first request completes.
+        cached(artistName)?.let { return@withLock it }
         val art = withContext(Dispatchers.IO) {
             runCatching { lookup(artistName, key) }
                 .onFailure { Log.d(TAG, "lookup failed for $artistName: $it") }
                 .getOrNull()
-        } ?: return null
+        } ?: return@withLock null
         synchronized(cache) { cache[key] = art }
+        diskCache?.edit()?.putString(key, JSONObject().apply {
+            put("at", System.currentTimeMillis())
+            put("hero", art.heroUrl)
+            put("logo", art.logoUrl ?: "")
+            put("aspect", art.logoAspect.toDouble())
+            put("video", art.videoUrl ?: "")
+            put("background", art.background)
+            put("accent", art.accent)
+            art.keyColor?.let { put("keyColor", it) }
+        }.toString())?.apply()
         _updates.value++
-        return art
+        art
+        }
     }
 
     private fun lookup(artistName: String, key: String): AppleArtistArt? {
@@ -146,7 +188,7 @@ object AppleArtistArtRepository {
         val heroW = hero.optInt("width").takeIf { it > 0 } ?: return null
         val heroH = hero.optInt("height").takeIf { it > 0 } ?: return null
 
-        val heroUrl = hero.optString("url").fill(
+        val stillUrl = hero.optString("url").fill(
             HERO_WIDTH, (HERO_WIDTH.toLong() * heroH / heroW).toInt(), "jpg",
         ) ?: return null
         val logoUrl = if (logo != null && logoW > 0 && logoH > 0) {
@@ -157,9 +199,20 @@ object AppleArtistArtRepository {
         val clip = header.optJSONObject("videoArtwork")?.optJSONObject("dictionary")
             ?.optJSONObject("motionArtistSquare1x1")
         val video = clip?.optString("video")?.takeIf { it.startsWith("http") }
+        // Use the clip's own preview as its loading frame. The ordinary hero
+        // can be a different photograph, making the header visibly jump just
+        // before the first decoded video frame arrives.
+        val preview = clip?.optJSONObject("previewFrame")?.takeIf { video != null }
+        val previewW = preview?.optInt("width") ?: 0
+        val previewH = preview?.optInt("height") ?: 0
+        val heroUrl = if (previewW > 0 && previewH > 0) {
+            preview?.optString("url")?.fill(
+                HERO_WIDTH, (HERO_WIDTH.toLong() * previewH / previewW).toInt(), "jpg",
+            ) ?: stillUrl
+        } else stillUrl
         // The clip is a different picture from the still, with its own colours
         // — the page has to match whichever one is on screen.
-        val colours = clip?.optJSONObject("previewFrame")?.takeIf { video != null } ?: hero
+        val colours = preview ?: hero
         val background = colours.optString("bgColor").toArgb()
             ?: hero.optString("bgColor").toArgb() ?: return null
         val accent = colours.optString("textColor1").toArgb() ?: background

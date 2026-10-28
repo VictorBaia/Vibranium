@@ -8,6 +8,7 @@ build/
 gradle-app.setting
 !gradle-wrapper.jar
 !gradle-wrapper.properties
+.gradle-user-home/
 
 # Local configuration file (SDK path, etc.)
 local.properties

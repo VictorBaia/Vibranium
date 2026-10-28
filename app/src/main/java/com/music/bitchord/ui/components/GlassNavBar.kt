@@ -101,6 +101,7 @@ fun GlassNavBar(
     pull: MiniPlayerPull? = null,
     modifier: Modifier = Modifier,
 ) {
+    PrewarmPlayerCanvas(song)
     // Held for the same reason [tabs] is. The glass factory below closes over
     // this shape, and a fresh RoundedCornerShape each pass means a fresh factory
     // lambda, which the tab bar sees as a changed argument and recomposes on.

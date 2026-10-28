@@ -5,9 +5,19 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -66,8 +76,10 @@ import com.music.bitchord.data.canvas.CanvasCache
 import com.music.bitchord.data.cache.CacheUsageEntry
 import com.music.bitchord.data.navidrome.NavidromeStore
 import com.music.bitchord.ui.components.ProfilePhotoCropDialog
+import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.playback.AudioCache
 import coil3.SingletonImageLoader
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -78,6 +90,10 @@ import java.io.File
 internal fun NavidromeSettingsScreen(
     contentPadding: PaddingValues,
     onForceSynchronization: () -> Unit = {},
+    onOpenListenBrainzLogin: () -> Unit = {},
+    onOpenLastfmLogin: () -> Unit = {},
+    onOpenDiscord: () -> Unit = {},
+    onOpenSpotify: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val session by NavidromeSession.state.collectAsStateWithLifecycle()
@@ -87,21 +103,6 @@ internal fun NavidromeSettingsScreen(
     var showLogin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<NavidromeLoginResult?>(null) }
-    val wifiQuality by NavidromeTranscoding.wifi.collectAsStateWithLifecycle()
-    val cellularQuality by NavidromeTranscoding.cellular.collectAsStateWithLifecycle()
-    val downloadQuality by NavidromeTranscoding.download.collectAsStateWithLifecycle()
-    val lyricsMode by NavidromeLyricsSettings.mode.collectAsStateWithLifecycle()
-    val cacheLimitBytes by AppSettings.audioCacheLimitBytes.collectAsStateWithLifecycle()
-    val imageCacheLimitBytes by AppSettings.imageCacheLimitBytes.collectAsStateWithLifecycle()
-    val videoCacheLimitBytes by AppSettings.videoCacheLimitBytes.collectAsStateWithLifecycle()
-    var pickingQuality by remember { mutableStateOf<QualityTarget?>(null) }
-    var pickingDownloadQuality by remember { mutableStateOf(false) }
-    var confirmClearSongCache by remember { mutableStateOf(false) }
-    var confirmClearImageCache by remember { mutableStateOf(false) }
-    var inspectedCache by remember { mutableStateOf<CacheType?>(null) }
-    var inspectedEntries by remember { mutableStateOf<List<CacheUsageEntry>>(emptyList()) }
-    var inspectingCache by remember { mutableStateOf(false) }
-    var pickingLyricsMode by remember { mutableStateOf(false) }
     var photoToCrop by remember { mutableStateOf<Uri?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) photoToCrop = uri
@@ -126,7 +127,7 @@ internal fun NavidromeSettingsScreen(
             .padding(contentPadding),
     ) {
         Text(
-            text = stringResource(R.string.navidrome),
+            text = stringResource(R.string.navidrome_integrations),
             style = MaterialTheme.typography.displayLarge,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 14.dp),
@@ -156,20 +157,10 @@ internal fun NavidromeSettingsScreen(
                     enabled = false,
                 )
                 is NavidromeSessionState.SignedIn -> {
-                    SettingsRow(
-                        icon = Icons.Rounded.CloudDone,
-                        title = stringResource(R.string.navidrome_connected),
-                        subtitle = current.serverUrl,
-                    )
-                    RowDivider()
-                    SettingsRow(
-                        icon = Icons.Rounded.Person,
-                        title = stringResource(R.string.navidrome_username),
-                        subtitle = if (current.username.isBlank()) {
-                            stringResource(R.string.navidrome_api_key)
-                        } else {
-                            current.username
-                        },
+                    NavidromeAccountCard(
+                        username = current.username.ifBlank { stringResource(R.string.navidrome_api_key) },
+                        serverUrl = current.serverUrl,
+                        imageUri = (storeState as? NavidromeStore.State.Configured)?.config?.profileImageUri,
                     )
                     RowDivider()
                     SettingsRow(
@@ -224,166 +215,13 @@ internal fun NavidromeSettingsScreen(
             }
         }
 
-        // These are the same persisted preferences used by playback and
-        // downloads. Keeping their Navidrome entry points here makes the active
-        // source's settings complete without introducing a parallel preference.
-        SettingsGroup(header = stringResource(R.string.audio_quality)) {
-            SettingsRow(
-                icon = Icons.Rounded.Wifi,
-                title = stringResource(R.string.on_wifi),
-                value = wifiQuality.localizedLabel(),
-                onClick = { pickingQuality = QualityTarget.WIFI },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.SignalCellularAlt,
-                title = stringResource(R.string.on_mobile_data),
-                value = cellularQuality.localizedLabel(),
-                onClick = { pickingQuality = QualityTarget.CELLULAR },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.Download,
-                title = stringResource(R.string.download_quality),
-                value = downloadQuality.localizedLabel(),
-                onClick = { pickingDownloadQuality = true },
-            )
-        }
+        IntegrationSettingsSections(
+            onOpenListenBrainzLogin = onOpenListenBrainzLogin,
+            onOpenLastfmLogin = onOpenLastfmLogin,
+            onOpenDiscord = onOpenDiscord,
+            onOpenSpotify = onOpenSpotify,
+        )
 
-        SettingsGroup(header = stringResource(R.string.streaming)) {
-            val configured = session as? NavidromeSessionState.SignedIn
-            SettingsRow(
-                icon = Icons.Rounded.Waves,
-                title = stringResource(R.string.force_music_streaming),
-                subtitle = stringResource(R.string.force_music_streaming_description),
-                trailing = {
-                    Switch(
-                        checked = (storeState as? NavidromeStore.State.Configured)
-                            ?.config?.forceStreaming == true,
-                        onCheckedChange = { checked ->
-                            val state = NavidromeStore.state.value as? NavidromeStore.State.Configured
-                            state?.let { NavidromeStore.save(it.config.copy(forceStreaming = checked)) }
-                        },
-                    )
-                },
-                enabled = configured != null,
-            )
-        }
-
-        val cacheUnlimited = cacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES
-        val cacheLimitMb = if (cacheUnlimited) CACHE_UNLIMITED_STOP_MB else {
-            (cacheLimitBytes / BYTES_PER_MB).toInt()
-        }
-        SettingsGroup(header = stringResource(R.string.storage)) {
-            SliderRow(
-                icon = Icons.Rounded.Image,
-                title = stringResource(R.string.image_cache_limit),
-                subtitle = stringResource(R.string.image_cache_limit_subtitle),
-                value = formatCacheSize((imageCacheLimitBytes / BYTES_PER_MB).toInt()),
-                sliderValue = (imageCacheLimitBytes / BYTES_PER_MB).toFloat(),
-                onSliderValue = { value -> AppSettings.setImageCacheLimitBytes(value.toInt().toLong() * BYTES_PER_MB) },
-                valueRange = (AppSettings.MIN_IMAGE_CACHE_LIMIT_BYTES / BYTES_PER_MB).toFloat()..
-                    (AppSettings.MAX_IMAGE_CACHE_LIMIT_BYTES / BYTES_PER_MB).toFloat(),
-                steps = 39,
-            )
-            RowDivider()
-            SliderRow(
-                icon = Icons.Rounded.VideoLibrary,
-                title = stringResource(R.string.video_cache_limit),
-                subtitle = stringResource(R.string.video_cache_limit_subtitle),
-                value = formatCacheSize((videoCacheLimitBytes / BYTES_PER_MB).toInt()),
-                sliderValue = (videoCacheLimitBytes / BYTES_PER_MB).toFloat(),
-                onSliderValue = { value -> AppSettings.setVideoCacheLimitBytes(value.toInt().toLong() * BYTES_PER_MB) },
-                valueRange = (AppSettings.MIN_VIDEO_CACHE_LIMIT_BYTES / BYTES_PER_MB).toFloat()..
-                    (AppSettings.MAX_VIDEO_CACHE_LIMIT_BYTES / BYTES_PER_MB).toFloat(),
-                steps = 39,
-            )
-            RowDivider()
-            SliderRow(
-                icon = Icons.Rounded.Storage,
-                title = stringResource(R.string.song_cache_limit),
-                subtitle = stringResource(R.string.song_cache_limit_subtitle),
-                value = if (cacheUnlimited) stringResource(R.string.song_cache_unlimited) else formatCacheSize(cacheLimitMb),
-                sliderValue = cacheLimitMb.toFloat(),
-                onSliderValue = { value ->
-                    AppSettings.setAudioCacheLimitBytes(value.toInt().toLong() * BYTES_PER_MB)
-                },
-                valueRange = MIN_CACHE_MB.toFloat()..CACHE_UNLIMITED_STOP_MB.toFloat(),
-                steps = 19,
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.DeleteSweep,
-                title = stringResource(R.string.clear_song_cache),
-                subtitle = stringResource(R.string.clear_song_cache_subtitle),
-                onClick = { confirmClearSongCache = true },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.DeleteSweep,
-                title = stringResource(R.string.clear_image_cache),
-                subtitle = stringResource(R.string.clear_image_cache_subtitle),
-                onClick = { confirmClearImageCache = true },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.Storage,
-                title = stringResource(R.string.cached_audio_files),
-                subtitle = stringResource(R.string.cached_files_subtitle),
-                onClick = {
-                    inspectedCache = CacheType.AUDIO
-                    inspectedEntries = emptyList()
-                    inspectingCache = true
-                    scope.launch {
-                        inspectedEntries = AudioCache.storageEntries()
-                        inspectingCache = false
-                    }
-                },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.VideoLibrary,
-                title = stringResource(R.string.cached_video_files),
-                subtitle = stringResource(R.string.cached_files_subtitle),
-                onClick = {
-                    inspectedCache = CacheType.VIDEO
-                    inspectedEntries = emptyList()
-                    inspectingCache = true
-                    scope.launch {
-                        inspectedEntries = CanvasCache.storageEntries()
-                        inspectingCache = false
-                    }
-                },
-            )
-            RowDivider()
-            SettingsRow(
-                icon = Icons.Rounded.Image,
-                title = stringResource(R.string.cached_image_files),
-                subtitle = stringResource(R.string.cached_files_subtitle),
-                onClick = {
-                    inspectedCache = CacheType.IMAGE
-                    inspectedEntries = emptyList()
-                    inspectingCache = true
-                    scope.launch {
-                        inspectedEntries = imageCacheEntries(context)
-                        inspectingCache = false
-                    }
-                },
-            )
-        }
-
-        SettingsGroup(header = stringResource(R.string.synced_lyrics)) {
-            SettingsRow(
-                icon = Icons.Rounded.LibraryMusic,
-                title = stringResource(R.string.lyrics_provider),
-                value = if (lyricsMode == NavidromeLyricsMode.NAVIDROME) {
-                    stringResource(R.string.navidrome)
-                } else {
-                    stringResource(R.string.app_default)
-                },
-                onClick = { pickingLyricsMode = true },
-            )
-        }
     }
 
     if (showLogin) {
@@ -404,125 +242,50 @@ internal fun NavidromeSettingsScreen(
             },
         )
     }
-    pickingQuality?.let { target ->
-        ModalBottomSheet(
-            onDismissRequest = { pickingQuality = null },
-            containerColor = MaterialTheme.colorScheme.background,
-        ) {
-            NavidromeQualitySheet(
-                target = target,
-                selected = if (target == QualityTarget.WIFI) wifiQuality else cellularQuality,
-                onSelect = { quality ->
-                    if (target == QualityTarget.WIFI) NavidromeTranscoding.setWifi(quality)
-                    else NavidromeTranscoding.setCellular(quality)
-                    pickingQuality = null
-                },
+
+}
+
+@Composable
+private fun NavidromeAccountCard(username: String, serverUrl: String, imageUri: String?) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!imageUri.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(52.dp).clip(CircleShape).thumbnailBorder(CircleShape),
             )
-        }
-    }
-    if (pickingDownloadQuality) {
-        ModalBottomSheet(
-            onDismissRequest = { pickingDownloadQuality = false },
-            containerColor = MaterialTheme.colorScheme.background,
-        ) {
-            NavidromeQualitySheet(
-                target = null,
-                selected = downloadQuality,
-                onSelect = { quality ->
-                    NavidromeTranscoding.setDownload(quality)
-                    pickingDownloadQuality = false
-                },
-            )
-        }
-    }
-    if (pickingLyricsMode) {
-        ModalBottomSheet(
-            onDismissRequest = { pickingLyricsMode = false },
-            containerColor = MaterialTheme.colorScheme.background,
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                Text(
-                    text = stringResource(R.string.lyrics_provider),
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-                SettingsRow(
-                    icon = Icons.Rounded.LibraryMusic,
-                    title = stringResource(R.string.app_default),
-                    value = if (lyricsMode == NavidromeLyricsMode.APP_DEFAULT) "✓" else null,
-                    onClick = {
-                        NavidromeLyricsSettings.setMode(NavidromeLyricsMode.APP_DEFAULT)
-                        pickingLyricsMode = false
-                    },
-                )
-                RowDivider()
-                SettingsRow(
-                    icon = Icons.Rounded.LibraryMusic,
-                    title = stringResource(R.string.navidrome),
-                    value = if (lyricsMode == NavidromeLyricsMode.NAVIDROME) "✓" else null,
-                    onClick = {
-                        NavidromeLyricsSettings.setMode(NavidromeLyricsMode.NAVIDROME)
-                        pickingLyricsMode = false
-                    },
+        } else {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.size(52.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.outline),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Rounded.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-    }
-    if (confirmClearSongCache) {
-        AlertDialog(
-            onDismissRequest = { confirmClearSongCache = false },
-            title = { Text(stringResource(R.string.clear_song_cache_title)) },
-            text = { Text(stringResource(R.string.clear_song_cache_warning)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmClearSongCache = false
-                    AudioCache.clear {
-                        Toast.makeText(context, context.getString(R.string.song_cache_cleared), Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text(stringResource(R.string.clear)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmClearSongCache = false }) { Text(stringResource(R.string.cancel)) }
-            },
-        )
-    }
-    if (confirmClearImageCache) {
-        AlertDialog(
-            onDismissRequest = { confirmClearImageCache = false },
-            title = { Text(stringResource(R.string.clear_image_cache)) },
-            text = { Text(stringResource(R.string.clear_image_cache_subtitle)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmClearImageCache = false
-                    SingletonImageLoader.get(context).also { loader ->
-                        loader.memoryCache?.clear()
-                        loader.diskCache?.clear()
-                    }
-                    CanvasCache.clear()
-                    Toast.makeText(context, context.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
-                }) { Text(stringResource(R.string.clear)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmClearImageCache = false }) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
-    inspectedCache?.let { type ->
-        CacheContentsDialog(
-            title = when (type) {
-                CacheType.AUDIO -> stringResource(R.string.cached_audio_files)
-                CacheType.VIDEO -> stringResource(R.string.cached_video_files)
-                CacheType.IMAGE -> stringResource(R.string.cached_image_files)
-            },
-            entries = inspectedEntries,
-            loading = inspectingCache,
-            onDismiss = { inspectedCache = null },
-        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(username, style = MaterialTheme.typography.titleLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(serverUrl, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
-private enum class CacheType { AUDIO, VIDEO, IMAGE }
+internal enum class CacheType { AUDIO, VIDEO, IMAGE }
 
 @Composable
-private fun CacheContentsDialog(
+internal fun CacheContentsDialog(
     title: String,
     entries: List<CacheUsageEntry>,
     loading: Boolean,
@@ -556,7 +319,7 @@ private fun CacheContentsDialog(
     )
 }
 
-private suspend fun imageCacheEntries(context: android.content.Context): List<CacheUsageEntry> =
+internal suspend fun imageCacheEntries(context: android.content.Context): List<CacheUsageEntry> =
     withContext(Dispatchers.IO) {
         val diskCache = SingletonImageLoader.get(context).diskCache ?: return@withContext emptyList()
         File(diskCache.directory.toString())
@@ -568,20 +331,16 @@ private suspend fun imageCacheEntries(context: android.content.Context): List<Ca
             .toList()
     }
 
-private fun formatCacheBytes(bytes: Long): String = when {
+internal fun formatCacheBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L * 1024L -> "%.2f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
     bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
     else -> "$bytes B"
 }
 
-private const val BYTES_PER_MB = 1024L * 1024L
-private const val MIN_CACHE_MB = 512
-private const val CACHE_UNLIMITED_STOP_MB = 12 * 1024
-
-/** Reuses the existing settings rows inside the Navidrome-only bottom sheet. */
+/** Reuses the existing settings rows for Navidrome streaming and downloads. */
 @Composable
-private fun NavidromeQualitySheet(
+internal fun NavidromeQualitySheet(
     target: QualityTarget?,
     selected: NavidromeTranscodeProfile,
     onSelect: (NavidromeTranscodeProfile) -> Unit,
@@ -625,11 +384,11 @@ private fun NavidromeQualitySheet(
 }
 
 @Composable
-private fun NavidromeTranscodeProfile.localizedLabel(): String = when (this) {
-    NavidromeTranscodeProfile.ORIGINAL -> stringResource(R.string.navidrome_original_file)
-    NavidromeTranscodeProfile.AAC_320, NavidromeTranscodeProfile.AAC_256,
-    NavidromeTranscodeProfile.AAC_192, NavidromeTranscodeProfile.AAC_128 ->
-        stringResource(R.string.navidrome_quality_aac, requireNotNull(maxBitRateKbps))
+internal fun NavidromeTranscodeProfile.localizedLabel(showBitrate: Boolean = true): String = when {
+    this == NavidromeTranscodeProfile.ORIGINAL -> stringResource(R.string.navidrome_original_file)
+    !showBitrate && format == "aac" -> "AAC"
+    !showBitrate && format == "mp3" -> "MP3"
+    format == "aac" -> stringResource(R.string.navidrome_quality_aac, requireNotNull(maxBitRateKbps))
     else -> stringResource(R.string.navidrome_quality_mp3, requireNotNull(maxBitRateKbps))
 }
 
@@ -641,7 +400,7 @@ private fun NavidromeLoginDialog(
     onDismiss: () -> Unit,
     onConnect: (NavidromeLoginDraft) -> Unit,
 ) {
-    var serverUrl by remember { mutableStateOf(initialSession?.serverUrl.orEmpty()) }
+    var serverUrl by remember { mutableStateOf(initialSession?.serverUrl ?: NavidromeStore.lastServerUrl.orEmpty()) }
     var username by remember { mutableStateOf(initialSession?.username.orEmpty()) }
     var secret by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf(initialSession?.credentialKind ?: NavidromeCredentialKind.PASSWORD) }

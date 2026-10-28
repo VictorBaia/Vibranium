@@ -106,7 +106,7 @@ internal class CatalogSourceRouter(
     }
 }
 
-/** Process-wide router initialized after secure Navidrome storage is opened. */
+/** Process-wide router observes secure Navidrome storage as it finishes opening. */
 internal object AppCatalogRouter {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val configurationState = MutableStateFlow<CatalogConfigurationState>(

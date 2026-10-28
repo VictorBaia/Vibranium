@@ -49,14 +49,14 @@ uploads it as `bitchord-wear-prod-release-signed`.
 ./gradlew :wearos:assembleDevDebug :wearos:assembleProdRelease
 ```
 
-APKs land in `wearos/build/outputs/apk/<flavor>/<type>/BitChordWear-*.apk`.
+APKs land in `wearos/build/outputs/apk/<flavor>/<type>/VibraniumWear-*.apk`.
 To install on a Galaxy Watch, turn on Developer options → ADB debugging and
 Wireless debugging on the watch, then:
 
 ```bash
 adb pair <watch-ip>:<pairing-port>
 adb connect <watch-ip>:<port>
-adb -s <watch-ip>:<port> install -r wearos/build/outputs/apk/dev/debug/BitChordWear-dev-debug.apk
+adb -s <watch-ip>:<port> install -r wearos/build/outputs/apk/dev/debug/VibraniumWear-dev-debug.apk
 ```
 
 The phone needs a BitChord build that includes `WearBridge` (anything from this

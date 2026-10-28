@@ -48,6 +48,8 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import com.music.bitchord.ui.rememberIsForeground
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.music.bitchord.data.Http
@@ -68,6 +70,7 @@ private const val TAG = "CanvasArtworkPlayer"
  * coming back does not sit there as a hole for the length of a glance.
  */
 private const val REPAINT_TIMEOUT_MS = 700L
+private const val FIRST_FRAME_TIMEOUT_MS = 3_000L
 
 /**
  * The looping video that plays over a track's cover art, sized to fill and
@@ -165,29 +168,42 @@ internal fun AndroidCanvasArtworkPlayer(
     val context = LocalContext.current
 
     var url by remember(canvas) { mutableStateOf(canvas.url) }
-    var rendered by remember(canvas) { mutableStateOf(false) }
+    var playbackAttempt by remember(canvas) { mutableIntStateOf(0) }
+    var rendered by remember { mutableStateOf(false) }
     // Aspect of the clip itself. Zero until the decoder reports it, which is
     // also the signal that there is nothing sensible to crop to yet.
-    var clipAspect by remember(canvas) { mutableFloatStateOf(0f) }
+    var clipAspect by remember { mutableFloatStateOf(0f) }
     var bounds by remember { mutableStateOf(IntSize.Zero) }
-    var textureView by remember(canvas) { mutableStateOf<TextureView?>(null) }
+    var textureView by remember { mutableStateOf<TextureView?>(null) }
     // Frames are counted rather than flagged, because [rendered] cannot answer
     // the question the repaint below has to ask: "did a frame land on *this*
     // surface", not "has one ever landed".
-    var frameTick by remember(canvas) { mutableIntStateOf(0) }
+    var frameTick by remember { mutableIntStateOf(0) }
     // Bumped each time the view is handed a surface to replace one that was
     // taken away — which, in practice, means each time the app comes back from
     // off screen. Not bumped for the first surface of all, which arrives with
     // nothing needing doing to it. See the repaint effect below.
-    var surfaceGeneration by remember(canvas) { mutableIntStateOf(0) }
+    var surfaceGeneration by remember { mutableIntStateOf(0) }
     val currentContentMode by rememberUpdatedState(contentMode)
     val currentAlignPortraitTop by rememberUpdatedState(alignPortraitTop)
     val currentPortraitRevealBounds by rememberUpdatedState(portraitRevealBounds)
     val currentPresentationAlpha by rememberUpdatedState(presentationAlpha)
     val reportAspect by rememberUpdatedState(onAspectRatioChanged)
 
+    // Keep one decoder and its TextureView across tracks; only the listener's
+    // per-clip state changes when the animated artwork changes.
     val player = remember {
-        ExoPlayer.Builder(context)
+        ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+            // Animated sleeves are short silent loops. Media3's general video
+            // buffer target can retain tens of MB alongside the full-resolution
+            // cover and the actual music player on a 256 MB heap. Keep only a
+            // few seconds ahead; CanvasCache serves later loops from disk.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(1_000, 5_000, 500, 1_000)
+                    .setTargetBufferBytes(8 * 1024 * 1024)
+                    .build(),
+            )
             // Shares the app's one OkHttp client, as everything that fetches
             // over the network here does — and wrapped in CanvasCache so a
             // loop past the first is read off disk rather than re-fetched;
@@ -207,7 +223,13 @@ internal fun AndroidCanvasArtworkPlayer(
             }
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(player) { onDispose { player.release() } }
+
+    // The listener must follow the current canvas. Previously this effect
+    // was keyed only on the reusable player, so it kept the first track's
+    // fallback URL and state closures after a skip. Later animated covers
+    // could remain static or start the wrong fallback rendition.
+    DisposableEffect(player, canvas) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val width = videoSize.width * videoSize.pixelWidthHeightRatio
@@ -221,12 +243,16 @@ internal fun AndroidCanvasArtworkPlayer(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // One retry, at the other rendition. If that is the one that
-                // just failed there is nowhere left to go: leave the still
-                // art up rather than looping through a broken URL.
+                // Try the other rendition, then allow one recovery from a
+                // transient read/decoder error. A persistent failure keeps
+                // the still art rather than retrying forever.
                 val alternate = canvas.fallbackUrl
                 if (alternate != null && alternate != url) {
                     url = alternate
+                } else if (playbackAttempt == 0) {
+                    // A brief network/decoder failure must not leave an album
+                    // with working motion artwork static for this whole visit.
+                    playbackAttempt++
                 } else {
                     rendered = false
                 }
@@ -235,11 +261,10 @@ internal fun AndroidCanvasArtworkPlayer(
         player.addListener(listener)
         onDispose {
             player.removeListener(listener)
-            player.release()
         }
     }
 
-    LaunchedEffect(url) {
+    LaunchedEffect(canvas, url, playbackAttempt) {
         rendered = false
         clipAspect = 0f
         reportAspect(0f)
@@ -265,6 +290,22 @@ internal fun AndroidCanvasArtworkPlayer(
     val foreground = rememberIsForeground()
     LaunchedEffect(foreground, pausedForTransition) {
         player.playWhenReady = foreground && !pausedForTransition
+    }
+
+    // A CDN may open the stream without producing a decodable frame or a
+    // PlayerException. That used to leave a known animated release showing
+    // only its still cover indefinitely. Fail over to the alternate rendition
+    // (or retry this one once) if the visible surface never receives a frame.
+    LaunchedEffect(url, playbackAttempt, foreground, pausedForTransition, textureView) {
+        if (!foreground || pausedForTransition || textureView == null || rendered) return@LaunchedEffect
+        delay(FIRST_FRAME_TIMEOUT_MS)
+        if (rendered || !foreground || pausedForTransition) return@LaunchedEffect
+        val alternate = canvas.fallbackUrl
+        if (alternate != null && alternate != url) {
+            url = alternate
+        } else if (playbackAttempt == 0) {
+            playbackAttempt++
+        }
     }
 
     // Repaint onto a surface that has just been handed back. A TextureView's

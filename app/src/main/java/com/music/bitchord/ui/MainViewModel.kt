@@ -1,11 +1,11 @@
 package com.music.bitchord.ui
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.music.bitchord.R
 import com.music.bitchord.BuildConfig
-import com.music.bitchord.auth.AuthStore
 import com.music.bitchord.auth.SignedIn
 import com.music.bitchord.auth.GoogleAccountSession
 import com.music.bitchord.auth.YouTubeProfile
@@ -13,16 +13,19 @@ import com.music.bitchord.auth.profileId
 import com.music.bitchord.auth.sessionId
 import com.music.bitchord.auth.adjacentProfile
 import com.music.bitchord.data.AppUpdateChecker
+import com.music.bitchord.data.canvas.AppleArtistArtRepository
 import com.music.bitchord.data.LocalMediaRepository
 import com.music.bitchord.data.LikeState
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.catalog.AppCatalogRouter
 import com.music.bitchord.data.navidrome.AppNavidromeCatalogue
+import com.music.bitchord.StartupInitialization
 import com.music.bitchord.data.navidrome.NavidromeCatalogueLabels
 import com.music.bitchord.data.navidrome.NavidromeEntity
 import com.music.bitchord.data.navidrome.NavidromeIds
 import com.music.bitchord.data.navidrome.NavidromeSession
 import com.music.bitchord.data.navidrome.NavidromeSessionState
+import com.music.bitchord.data.navidrome.NavidromeEssentialAlbums
 import com.music.bitchord.data.navidrome.NavidromeLyricsMode
 import com.music.bitchord.data.navidrome.NavidromeLyricsSettings
 import com.music.bitchord.data.model.SPOTIFY_MISSING_PREFIX
@@ -66,6 +69,8 @@ import com.music.bitchord.data.model.EntityType
 import com.music.bitchord.data.settings.SearchHistory
 import com.music.bitchord.download.Downloads
 import android.util.LruCache
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -86,10 +91,12 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import com.music.bitchord.data.sources.AddonSource
@@ -117,9 +124,13 @@ private const val NAVIDROME_ARTIST_NAME_ROUTE = "navidrome:artist-name:"
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val authStore = AuthStore(app)
+    // Application opens the encrypted store once before starting background
+    // initialization; reopening it here repeats a Keystore round trip on the
+    // UI thread during the first composition.
+    private val authStore = com.music.bitchord.BitChordApplication.authStore
 
     private val navidromeMode = BuildConfig.NAVIDROME_MODE
+    private var catalogueStartupReady = !navidromeMode
     private val _signedIn = if (navidromeMode) {
         MutableStateFlow(NavidromeSession.state.value is NavidromeSessionState.SignedIn)
     } else {
@@ -625,6 +636,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _detailStack = MutableStateFlow<List<DetailPage>>(emptyList())
     val detailStack: StateFlow<List<DetailPage>> = _detailStack.asStateFlow()
+
+    /** Artist routes waiting to resolve to a Navidrome account ID. */
+    private val pendingNavidromeArtistRoutes = mutableSetOf<String>()
 
     /** UI-side continuation fetches that can be handed to the playback service. */
     private val fillInJobs = mutableMapOf<String, Job>()
@@ -1592,9 +1606,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * showing it a moment out of date.
      */
     private var libraryStale = false
+    /** Navidrome's full library is fetched only after its tab is first opened. */
+    private var libraryRequested = false
+    private var libraryLoadInFlight = false
 
     /** Call when the library tab becomes visible. */
     fun onLibraryShown() {
+        if (!libraryRequested) loadLibrary()
         loadPlaylists()
         if (!libraryStale) return
         libraryStale = false
@@ -1605,24 +1623,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         startSearchPipeline()
         startSuggestPipeline()
         startTypeaheadMediaPipeline()
-        loadHome()
-        if (_signedIn.value) {
+        if (navidromeMode) {
+            viewModelScope.launch {
+                StartupInitialization.awaitReady()
+                val initialSession = NavidromeSession.state.first {
+                    it != NavidromeSessionState.Loading
+                }
+                catalogueStartupReady = true
+                _signedIn.value = initialSession is NavidromeSessionState.SignedIn
+                loadHome()
+            }
+        } else {
+            loadHome()
+        }
+        if (_signedIn.value && !navidromeMode) {
             loadLibrary()
-            if (!navidromeMode) loadAccount()
+            loadAccount()
             loadPlaylists()
         }
         if (navidromeMode) viewModelScope.launch {
             NavidromeSession.state.collectLatest { state ->
+                if (state == NavidromeSessionState.Loading) return@collectLatest
                 val connected = state is NavidromeSessionState.SignedIn
                 val changed = _signedIn.value != connected
                 _signedIn.value = connected
-                if (changed) {
+                if (changed && catalogueStartupReady) {
                     LikeState.clear()
                     _playlists.value = emptyList()
                     loadHome()
                     if (connected) {
-                        loadLibrary()
-                        loadPlaylists()
+                        if (libraryRequested) {
+                            loadLibrary()
+                            loadPlaylists()
+                        }
                     } else {
                         _library.value = UiState.Error(text(R.string.navidrome_sign_in_required))
                     }
@@ -1749,8 +1782,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun refresh(feed: Feed) {
         if (feed in _refreshing.value) return
-        if (feed == Feed.LIBRARY && !_signedIn.value) return
+        if (feed == Feed.LIBRARY && !_signedIn.value && !navidromeMode) return
         val identity = catalogueIdentity()
+        if (feed == Feed.LIBRARY && navidromeMode) {
+            NavidromeEssentialAlbums.invalidate(getApplication())
+        }
         _refreshing.value = _refreshing.value + feed
         viewModelScope.launch {
             when (feed) {
@@ -1871,11 +1907,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             _homePendingShelves.value = 1
             viewModelScope.launch {
-                AppNavidromeCatalogue.current.home(navidromeLabels()).fold(
+                val partialShelves = sortedMapOf<Int, HomeShelf>()
+                AppNavidromeCatalogue.current.home(navidromeLabels()) { index, shelf ->
+                    if (isCurrentHomeLoad(identity, generation)) {
+                        partialShelves[index] = shelf
+                        _home.value = UiState.Success(partialShelves.values.toList())
+                    }
+                }.fold(
                     onSuccess = { shelves ->
                         if (isCurrentHomeLoad(identity, generation)) {
                             _home.value = if (shelves.isEmpty()) UiState.Error(text(R.string.nothing_to_explore))
-                            else UiState.Success(shelves)
+                            else UiState.Success(partialShelves.values.toList())
                         }
                     },
                     onFailure = { if (isCurrentHomeLoad(identity, generation)) _home.value = UiState.Error(it.friendly()) },
@@ -2015,17 +2057,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadLibrary() {
+        libraryRequested = true
         if (!_signedIn.value) return
+        if (libraryLoadInFlight) return
+        libraryLoadInFlight = true
         val identity = catalogueIdentity()
         _library.value = UiState.Loading
-        viewModelScope.launch { fetchLibrary(identity) }
+        viewModelScope.launch {
+            try {
+                fetchLibrary(identity)
+            } finally {
+                libraryLoadInFlight = false
+            }
+        }
     }
 
     private suspend fun fetchLibrary(identity: String?) {
         if (navidromeMode) {
-            val next = AppNavidromeCatalogue.current.library(navidromeLabels()).fold(
+            val result = AppNavidromeCatalogue.current.library(navidromeLabels())
+            val next = result.fold(
                 onSuccess = { page ->
-                    page.likedSongs.forEach { LikeState.set(it.videoId, LikeStatus.LIKE) }
+                    withContext(Dispatchers.Default) {
+                        page.likedSongs.forEach { LikeState.set(it.videoId, LikeStatus.LIKE) }
+                    }
                     if (page.isEmpty) UiState.Error(text(R.string.library_empty)) else UiState.Success(page)
                 },
                 onFailure = {
@@ -2035,7 +2089,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     UiState.Success(LibraryPage(emptyList(), emptyList(), emptyList()))
                 },
             )
-            if (identity == catalogueIdentity()) _library.value = next
+            if (identity == catalogueIdentity()) {
+                _library.value = next
+                (next as? UiState.Success)?.data?.shelves.orEmpty()
+                    .flatMap(HomeShelf::items)
+                    .filter { it.browseId?.let(NavidromeIds::parse)?.entity == NavidromeEntity.ARTIST }
+                    .take(8)
+                    .forEach { warmArtistArt(it.title) }
+            }
             return
         }
         val next = YtMusicRepository.library().fold(
@@ -2223,6 +2284,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // Reset the submission gate so typeahead pipelines fire again.
         searchSubmitted = false
+        if (navidromeMode) {
+            // Keep the native typeahead visible immediately, even before the
+            // server has answered. Results from the previous query must not
+            // flash below the newly typed text.
+            _suggestions.value = listOf(newValue)
+            _typeaheadResults.value = emptyList()
+        }
         // Library searches deliberately wait for submit for the full result
         // page. The Navidrome library still has a separate, debounced
         // typeahead pipeline: it previews matching media while the user types
@@ -2291,6 +2359,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Points the non-Navidrome build at YouTube Music or device-local music. */
     fun setSearchSource(source: SearchSource) {
+        if (navidromeMode && source != SearchSource.LIBRARY) return
         if (_searchSource.value == source) return
         _searchSource.value = source
         _suggestions.value = emptyList()
@@ -2440,6 +2509,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         searchSession = SearchSession(key, request.requestId, request.filter, null)
                         UiState.Success(rows)
                     }
+                    // Begin the artist header lookup while the result card is
+                    // visible. By the time the user opens it, the hero, logo
+                    // and clip URLs are often already cached.
+                    rows.filterIsInstance<SearchResult.Browse>()
+                        .map { it.item }
+                        .firstOrNull { it.type == BrowseType.ARTIST }
+                        ?.title
+                        ?.let(::warmArtistArt)
                     return@collectLatest
                 }
                 val result = YtMusicRepository.searchPage(request.query, request.filter, request.anonymous)
@@ -2511,7 +2588,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .collectLatest { input ->
                 if (!stillWanted(input)) return@collectLatest
                 if (navidromeMode) {
-                    _suggestions.value = listOf(input)
+                    // Navidrome completions are derived from the same mixed
+                    // catalogue response as the media cards below. Do not
+                    // start a second network request for each keystroke.
                     return@collectLatest
                 }
                 val fetched = YtMusicRepository.searchSuggestions(input).getOrNull()
@@ -2548,17 +2627,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (navidromeMode) {
                     if (AppSettings.meteredConnection.value == null) {
-                        _typeaheadResults.value = offlineSearchRows(input, SearchFilter.ALL).first
-                            .take(TYPEAHEAD_MAX_RESULTS)
+                        val rows = offlineSearchRows(input, SearchFilter.ALL).first
+                        if (_query.value == input && !searchSubmitted) {
+                            _typeaheadResults.value = rows.take(TYPEAHEAD_MAX_RESULTS)
+                            _suggestions.value = navidromeCompletions(input, rows)
+                        }
                         return@collectLatest
                     }
-                    val result = AppNavidromeCatalogue.current.search(input, SearchFilter.ALL).getOrNull().orEmpty()
+                    val result = AppNavidromeCatalogue.current.searchTypeahead(input).getOrNull().orEmpty()
                     if (_query.value == input && !searchSubmitted) {
-                        _typeaheadResults.value = if (result.isNotEmpty()) {
-                            result.take(TYPEAHEAD_MAX_RESULTS)
+                        val rows = if (result.isNotEmpty()) {
+                            result
                         } else {
-                            offlineSearchRows(input, SearchFilter.ALL).first.take(TYPEAHEAD_MAX_RESULTS)
+                            offlineSearchRows(input, SearchFilter.ALL).first
                         }
+                        _typeaheadResults.value = rows.take(TYPEAHEAD_MAX_RESULTS)
+                        _suggestions.value = navidromeCompletions(input, rows)
                     }
                     return@collectLatest
                 }
@@ -2571,6 +2655,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Cap results so the dropdown doesn't grow unbounded.
                 _typeaheadResults.value = result?.rows.orEmpty().take(TYPEAHEAD_MAX_RESULTS)
             }
+    }
+
+    /** Text completions sourced only from the user's Navidrome catalogue. */
+    private fun navidromeCompletions(input: String, rows: List<SearchResult>): List<String> {
+        val query = input.trim()
+        val candidates = rows.flatMap { row -> when (row) {
+            is SearchResult.Browse -> listOf(row.item.title)
+            is SearchResult.Track -> listOf(row.song.albumName, row.song.title)
+            is SearchResult.TopTrack -> listOf(row.song.albumName, row.song.title)
+        } }
+        return listOf(input) + candidates.mapNotNull { it?.trim() }
+            .filter { it.contains(query, ignoreCase = true) && !it.equals(query, ignoreCase = true) }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .take(3)
     }
 
     private suspend fun publishOfflineSearch(
@@ -2867,6 +2965,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val artistArtWarmups = ConcurrentHashMap.newKeySet<String>()
+
+    /** Starts the same artwork path for every entry point, including Library,
+     * player credits, related artists and search results. */
+    private fun warmArtistArt(name: String) {
+        if (!navidromeMode || name.isBlank()) return
+        val key = name.trim().lowercase(Locale.ROOT)
+        if (!artistArtWarmups.add(key)) return
+        viewModelScope.launch {
+            try {
+                val art = AppleArtistArtRepository.artFor(name) ?: return@launch
+                val app = getApplication<Application>()
+                val loader = SingletonImageLoader.get(app)
+                launch {
+                    runCatching { loader.execute(ImageRequest.Builder(app)
+                        .data(art.heroUrl)
+                        .size(256)
+                        .diskCacheKey("artwork:original:${art.heroUrl}")
+                        .build()) }
+                }
+                art.logoUrl?.let { logo ->
+                    launch {
+                        runCatching { loader.execute(ImageRequest.Builder(app)
+                            .data(logo)
+                            .size(256)
+                            .build()) }
+                    }
+                }
+            } finally {
+                artistArtWarmups.remove(key)
+            }
+        }
+    }
+
     fun openDetail(
         browseId: String,
         title: String,
@@ -2888,14 +3020,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val resolved = browseTypeOf(browseId, type)
+        if (resolved == BrowseType.ARTIST) warmArtistArt(title)
+        val isCanonicalNavidromeArtist = NavidromeIds.parse(browseId)
+            ?.entity == NavidromeEntity.ARTIST
+        if (navidromeMode && resolved == BrowseType.ARTIST && !isCanonicalNavidromeArtist) {
+            // External artist IDs and name routes are only hints for finding
+            // the artist. Keep them out of DetailPage and all page-keyed UI
+            // state; resolve the account's Navidrome ID first.
+            if (!pendingNavidromeArtistRoutes.add(browseId)) return
+            viewModelScope.launch {
+                try {
+                    val canonicalId = AppNavidromeCatalogue.current
+                        .artistBrowseIdByName(title)
+                        .getOrElse { failure ->
+                            Toast.makeText(
+                                getApplication(),
+                                failure.friendly(),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            return@launch
+                        }
+                    openDetail(canonicalId, title, subtitle, thumbnailUrl, BrowseType.ARTIST)
+                    loadExternalArtistMetadata(canonicalId, browseId, title)
+                } finally {
+                    pendingNavidromeArtistRoutes.remove(browseId)
+                }
+            }
+            return
+        }
+        // Library loading already fetched the starred songs. Show that snapshot
+        // immediately instead of making the liked page wait for getStarred2
+        // again; the request below still refreshes it in the background.
+        val cachedLikedSongs = if (navidromeMode && browseId == NavidromeIds.LIKED_SONGS_BROWSE_ID) {
+            (_library.value as? UiState.Success)?.data?.likedSongs
+        } else null
         _detailStack.value += DetailPage(
             browseId = browseId,
             title = title,
             subtitle = subtitle,
             thumbnailUrl = thumbnailUrl,
-            songs = UiState.Loading,
+            songs = cachedLikedSongs?.let { UiState.Success(it) } ?: UiState.Loading,
             type = resolved,
         )
+        if (navidromeMode && resolved == BrowseType.ARTIST) {
+            loadEssentialAlbums(browseId, title)
+        }
         viewModelScope.launch {
             if (navidromeMode && resolved == BrowseType.ARTIST) {
                 // An artist can arrive from Replay/artist enrichment carrying a
@@ -2904,6 +3073,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // YouTube artist page. The optional YouTube response below is
                 // reduced to header/about metadata only; its songs and shelves
                 // never reach [DetailPage].
+                val showOverview: (DetailPage) -> Unit = { overview ->
+                    _detailStack.value = _detailStack.value.map { current ->
+                        if (current.browseId == browseId) {
+                            overview.copy(
+                                songs = if (overview.songs is UiState.Loading) current.songs else overview.songs,
+                                description = current.description ?: overview.description,
+                                subscriberCountText = current.subscriberCountText ?: overview.subscriberCountText,
+                                monthlyListenerCount = current.monthlyListenerCount ?: overview.monthlyListenerCount,
+                                essentialAlbumBrowseIds = current.essentialAlbumBrowseIds,
+                            )
+                        } else current
+                    }
+                }
                 val catalog = NavidromeIds.parse(browseId)
                     ?.takeIf { it.entity == NavidromeEntity.ARTIST }
                     ?.let {
@@ -2918,6 +3100,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             relatedArtistsTitle = text(R.string.navidrome_related_artists),
                             moreFromArtistTitle = text(R.string.navidrome_more_from_artist),
                             relatedAlbumsTitle = text(R.string.navidrome_related_albums),
+                            onArtistOverview = showOverview,
                         )
                     }
                     ?: AppNavidromeCatalogue.current.artistDetailByName(
@@ -2929,20 +3112,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         singleSectionTitle = text(R.string.navidrome_singles),
                         epSectionTitle = text(R.string.navidrome_eps),
                         relatedArtistsTitle = text(R.string.navidrome_related_artists),
+                        onOverview = showOverview,
                     )
-                val metadataBrowseId = when {
-                    NavidromeIds.parse(browseId) != null -> null
-                    browseId.startsWith(NAVIDROME_ARTIST_NAME_ROUTE) ->
-                        YtMusicRepository.search(title, SearchFilter.ARTISTS)
-                            .getOrNull()
-                            ?.filterIsInstance<SearchResult.Browse>()
-                            ?.firstOrNull { it.item.title.equals(title, ignoreCase = true) }
-                            ?.item
-                            ?.browseId
-                    else -> browseId
-                }
-                val externalMetadata = metadataBrowseId
-                    ?.let { YtMusicRepository.artistPage(it).getOrNull() }
                 _detailStack.value = _detailStack.value.map { current ->
                     if (current.browseId != browseId) current
                     else catalog.fold(
@@ -2958,24 +3129,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 // catalogue. These are display-only artist
                                 // facts, retained from the prior integration.
                                 songs = catalogState,
-                                thumbnailUrl = page.thumbnailUrl
-                                    ?: externalMetadata?.thumbnailUrl
-                                    ?: current.thumbnailUrl,
-                                // The Navidrome adapter obtains this through
-                                // the same confirmed artist enrichment used by
-                                // the original app. A direct server artist id
-                                // has no YouTube browse id, so externalMetadata
-                                // is normally null here; never let that erase a
-                                // listener count which the catalogue already
-                                // resolved.
-                                description = page.description ?: externalMetadata?.description,
-                                subscriberCountText = externalMetadata?.subscriberCountText,
-                                monthlyListenerCount = page.monthlyListenerCount
-                                    ?: externalMetadata?.monthlyListenerCount,
+                                thumbnailUrl = page.thumbnailUrl ?: current.thumbnailUrl,
+                                // Keep Navidrome's own description and listener
+                                // count; optional editorial facts arrive later.
+                                description = current.description ?: page.description,
+                                subscriberCountText = current.subscriberCountText ?: page.subscriberCountText,
+                                monthlyListenerCount = current.monthlyListenerCount ?: page.monthlyListenerCount,
+                                essentialAlbumBrowseIds = current.essentialAlbumBrowseIds,
                             )
                         },
                         onFailure = { current.copy(songs = UiState.Error(it.friendly())) },
                     )
+                }
+                // External artist routes (Replay, related artists, enriched
+                // credits) are resolved by name. Their Navidrome artist id is
+                // only known after artistDetailByName returns its canonical
+                // page, so start the tag lookup here as well as for direct
+                // Navidrome search results above.
+                if (navidromeMode && resolved == BrowseType.ARTIST) {
+                    catalog.getOrNull()?.browseId
+                        ?.takeIf { it != browseId }
+                        ?.let { loadEssentialAlbums(it, title) }
                 }
                 return@launch
             }
@@ -2991,6 +3165,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     relatedArtistsTitle = text(R.string.navidrome_related_artists),
                     moreFromArtistTitle = text(R.string.navidrome_more_from_artist),
                     relatedAlbumsTitle = text(R.string.navidrome_related_albums),
+                    onAlbumOverview = { overview ->
+                        _detailStack.value = _detailStack.value.map { current ->
+                            if (current.browseId == browseId && current.songs is UiState.Loading) {
+                                overview
+                            } else current
+                        }
+                    },
                 )
                 _detailStack.value = _detailStack.value.map { current ->
                     if (current.browseId != browseId) current
@@ -2999,7 +3180,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             val songs = (page.songs as? UiState.Success)?.data.orEmpty()
                             if (songs.isEmpty()) page.copy(songs = UiState.Error(text(R.string.no_tracks_here))) else page
                         },
-                        onFailure = { current.copy(songs = UiState.Error(it.friendly())) },
+                        onFailure = {
+                            if (cachedLikedSongs != null && browseId == NavidromeIds.LIKED_SONGS_BROWSE_ID) current
+                            else current.copy(songs = UiState.Error(it.friendly()))
+                        },
                     )
                 }
                 return@launch
@@ -3145,6 +3329,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun loadEssentialAlbums(artistBrowseId: String, artistName: String) {
+        val artist = NavidromeIds.parse(artistBrowseId)
+            ?.takeIf { it.entity == NavidromeEntity.ARTIST }
+            ?: return
+        viewModelScope.launch {
+            val albumIds = NavidromeEssentialAlbums.forArtist(
+                context = getApplication(),
+                artistId = artist.rawId,
+                artistName = artistName,
+            ).mapTo(LinkedHashSet(), NavidromeIds::album)
+            if (albumIds.isNotEmpty()) {
+                _detailStack.value = _detailStack.value.map { current ->
+                    if (current.browseId == artistBrowseId) {
+                        current.copy(essentialAlbumBrowseIds = albumIds)
+                    } else current
+                }
+            }
+        }
+    }
+
     /**
      * Opens an artist counted or displayed by name without resolving a
      * YouTube browse page first. [openDetail] resolves this route against the
@@ -3157,6 +3361,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val route = NAVIDROME_ARTIST_NAME_ROUTE + name.trim().lowercase(Locale.ROOT)
         openDetail(route, name, subtitle, thumbnailUrl, BrowseType.ARTIST)
+    }
+
+    private fun loadExternalArtistMetadata(
+        canonicalBrowseId: String,
+        sourceBrowseId: String,
+        title: String,
+    ) {
+        viewModelScope.launch {
+            val metadataBrowseId = if (sourceBrowseId.startsWith(NAVIDROME_ARTIST_NAME_ROUTE)) {
+                YtMusicRepository.search(title, SearchFilter.ARTISTS)
+                    .getOrNull()
+                    ?.filterIsInstance<SearchResult.Browse>()
+                    ?.firstOrNull { it.item.title.equals(title, ignoreCase = true) }
+                    ?.item?.browseId
+            } else sourceBrowseId
+            val metadata = metadataBrowseId
+                ?.let { YtMusicRepository.artistPage(it).getOrNull() }
+                ?: return@launch
+            _detailStack.value = _detailStack.value.map { current ->
+                if (current.browseId != canonicalBrowseId) current else current.copy(
+                    description = current.description ?: metadata.description,
+                    subscriberCountText = current.subscriberCountText ?: metadata.subscriberCountText,
+                    monthlyListenerCount = current.monthlyListenerCount ?: metadata.monthlyListenerCount,
+                )
+            }
+        }
     }
 
     /**
@@ -3346,7 +3576,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun cachedSongsState(): UiState<List<Song>> {
         val songs = AudioCache.cachedSongs().map { it.song }
-        return if (songs.isEmpty()) UiState.Error(text(R.string.cached_songs_empty)) else UiState.Success(songs)
+        return if (songs.isEmpty()) UiState.Error(text(if (navidromeMode) R.string.navidrome_cached_songs_empty else R.string.cached_songs_empty)) else UiState.Success(songs)
     }
 
     /**

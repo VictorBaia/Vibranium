@@ -357,6 +357,7 @@ fun MiniPlayer(
     pull: MiniPlayerPull? = null,
     modifier: Modifier = Modifier,
 ) {
+    PrewarmPlayerCanvas(song)
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val haptics = rememberHaptics()
     // percent rather than a dp figure, so the corner stays exactly half the

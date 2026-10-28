@@ -73,33 +73,33 @@ object AppleMusicCanvas {
             ?.get("data")?.jsonArray
             ?: return null
 
-        val ranked = hits.mapNotNull { hit ->
-            val song = hit as? JsonObject ?: return@mapNotNull null
-            val score = score(song, title, artist, album) ?: return@mapNotNull null
-            score to song
-        }.sortedByDescending { it.first }
-
-        for ((score, song) in ranked) {
-            if (score < MIN_SCORE) {
-                Log.d(TAG, "no hit scored above $MIN_SCORE for '$title' (best was $score)")
-                break
-            }
+        // The track performer can differ from the album artist (features and
+        // compilations). Verify the album credit, never the track byline.
+        for (song in hits.mapNotNull { it as? JsonObject }) {
             val attributes = song["attributes"]?.jsonObject ?: continue
             val songName = attributes["name"]?.jsonPrimitive?.contentOrNull
-            val songArtist = attributes["artistName"]?.jsonPrimitive?.contentOrNull
+            if (songName?.normalizeForMatch() != title.normalizeForMatch()) continue
             val albumName = attributes["albumName"]?.jsonPrimitive?.contentOrNull
+            if (albumName != null && isCompilation(albumName)) continue
+            val relatedAlbum = song["relationships"]?.jsonObject
+                ?.get("albums")?.jsonObject?.get("data")?.jsonArray
+                ?.firstOrNull()?.jsonObject
+            val relatedArtist = relatedAlbum?.get("attributes")?.jsonObject
+                ?.get("artistName")?.jsonPrimitive?.contentOrNull
 
             // Some searches already carry the motion artwork inline, which
             // saves the album round trip entirely.
-            attributes["editorialVideo"]?.jsonObject?.let { video ->
-                motionUrls(video)?.let { (primary, alternate) ->
-                    Log.d(TAG, "inline motion artwork for '$songName'")
-                    return CanvasArtwork(primary, alternate, songName, songArtist, albumName)
+            if (relatedArtist?.normalizeForMatch() == artist.normalizeForMatch()) {
+                attributes["editorialVideo"]?.jsonObject?.let { video ->
+                    motionUrls(video)?.let { (primary, alternate) ->
+                        Log.d(TAG, "inline motion artwork for '$songName'")
+                        return CanvasArtwork(primary, alternate, songName, relatedArtist, albumName)
+                    }
                 }
             }
 
             val albumId = albumId(song) ?: continue
-            fetchAlbum(albumId, bearer, songName, songArtist)?.let { return it }
+            fetchAlbum(albumId, bearer, songName, artist)?.let { return it }
         }
         return null
     }
@@ -286,6 +286,8 @@ object AppleMusicCanvas {
         val albumName = attributes["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
         if (isCompilation(albumName)) return null
 
+        val albumArtist = attributes["artistName"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (albumArtist.normalizeForMatch() != songArtist?.normalizeForMatch()) return null
         val video = attributes["editorialVideo"]?.jsonObject ?: return null
         val (primary, alternate) = motionUrls(video) ?: return null
 
@@ -294,7 +296,7 @@ object AppleMusicCanvas {
             url = primary,
             fallbackUrl = alternate,
             title = songTitle,
-            artist = songArtist ?: attributes["artistName"]?.jsonPrimitive?.contentOrNull,
+            artist = albumArtist,
             album = albumName,
         )
     }

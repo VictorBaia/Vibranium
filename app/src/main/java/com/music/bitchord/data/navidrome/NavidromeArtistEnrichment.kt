@@ -25,6 +25,35 @@ internal object NavidromeArtistEnrichment {
         )
     }
 
+    /** Presentation facts saved on a previous visit, without a network call. */
+    fun cached(cacheId: String): Facts? {
+        if (!::preferences.isInitialized) return null
+        val json = preferences.getString("artist:$cacheId", null)
+            ?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+        if (System.currentTimeMillis() - json.optLong("at") >= RETRY_AFTER_MS || json.optBoolean("miss")) {
+            return null
+        }
+        return Facts(json.text("image"), json.text("description"), json.text("monthly"))
+    }
+
+    /** Last server biography and artist photo, available before getArtistInfo2 returns. */
+    fun cachedServer(cacheId: String): Facts? {
+        if (!::preferences.isInitialized) return null
+        val json = preferences.getString("server:$cacheId", null)
+            ?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+        if (System.currentTimeMillis() - json.optLong("at") >= SERVER_TTL_MS) return null
+        return Facts(json.text("image"), json.text("description"), null)
+    }
+
+    fun saveServer(cacheId: String, image: String?, description: String?) {
+        if (!::preferences.isInitialized || (image == null && description == null)) return
+        preferences.edit().putString("server:$cacheId", JSONObject()
+            .put("at", System.currentTimeMillis())
+            .put("image", image ?: JSONObject.NULL)
+            .put("description", description ?: JSONObject.NULL)
+            .toString()).apply()
+    }
+
     suspend fun find(cacheId: String, name: String, albums: Set<String>, tracks: Set<String>): Facts? {
         if (!::preferences.isInitialized || name.isBlank()) return null
         val key = "artist:$cacheId"
@@ -68,4 +97,5 @@ internal object NavidromeArtistEnrichment {
         .trim()
 
     private val RETRY_AFTER_MS = TimeUnit.DAYS.toMillis(14)
+    private val SERVER_TTL_MS = TimeUnit.DAYS.toMillis(1)
 }

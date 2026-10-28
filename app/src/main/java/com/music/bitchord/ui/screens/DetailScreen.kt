@@ -5,6 +5,8 @@ import com.music.bitchord.R
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -113,8 +115,8 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
-import coil3.request.CachePolicy
 import coil3.size.Size
+import coil3.request.CachePolicy
 import coil3.request.transformations
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.delay
@@ -219,6 +221,10 @@ private val ABOUT_GUTTER = PAGE_GUTTER + 6.dp
 
 /** The artist bio and everything below it: the page edge every page shares. */
 private val ARTIST_CONTENT_GUTTER = PAGE_GUTTER
+
+/** Shared breathing room between rows in the artist's essential-albums list. */
+private val ESSENTIAL_ALBUM_ROW_VERTICAL_PADDING = 12.dp
+private val ESSENTIAL_ALBUM_ART_SIZE = 88.dp
 
 /**
  * How far past the foot of the artist photo the name is allowed to hang.
@@ -366,6 +372,18 @@ fun DetailScreen(
         rawSongs.withIndex().associate { (i, s) -> s.videoId to ((if (byTag) s.trackNumber else null) ?: (i + 1)) }
     }
     val isArtist = page.type == BrowseType.ARTIST
+    val essentialAlbumItems = remember(page.sections, page.essentialAlbumBrowseIds) {
+        page.sections.asSequence()
+            .flatMap { it.items.asSequence() }
+            .filter { it.browseId in page.essentialAlbumBrowseIds }
+            .distinctBy { it.browseId }
+            .sortedWith(
+                compareByDescending<ShelfItem> { it.releaseYear() ?: Int.MIN_VALUE }
+                    .thenBy { it.title.lowercase(Locale.ROOT) },
+            )
+            .toList()
+    }
+    var essentialAlbumsExpanded by rememberSaveable(page.browseId) { mutableStateOf(false) }
     // Whether the top release card's album is already saved isn't on the shelf
     // item; it is read off the album once, as soon as the card is known.
     val topReleaseId = if (isArtist) page.sections.topRelease()?.browseId else null
@@ -373,16 +391,19 @@ fun DetailScreen(
     // Apple Music's hero photo and title logo for this artist, found by name.
     // Null until (and unless) it arrives; Navidrome's artist art remains the
     // page background meanwhile.
-    var appleArt by remember(page.browseId) {
+    var appleArt by remember(page.browseId, page.title) {
         mutableStateOf(if (isArtist) AppleArtistArtRepository.cached(page.title) else null)
     }
-    var artistArtAttempt by remember(page.browseId) { mutableIntStateOf(0) }
+    var artistArtSettled by remember(page.browseId, page.title) {
+        mutableStateOf(appleArt != null)
+    }
+    var artistArtAttempt by remember(page.browseId, page.title) { mutableIntStateOf(0) }
     // Secondary provider: handwritten signature from the user's own
     // artist-signature API. Drawn only when Apple has no title logo.
     val signatureEnabled by AppSettings.signatureApiEnabled.collectAsStateWithLifecycle()
     val signatureBaseUrl by AppSettings.signatureApiUrl.collectAsStateWithLifecycle()
     val signatureUpdates by ArtistSignatureRepository.updates.collectAsStateWithLifecycle()
-    var signature by remember(page.browseId) { mutableStateOf<ArtistSignature?>(null) }
+    var signature by remember(page.browseId, page.title) { mutableStateOf<ArtistSignature?>(null) }
     // Opened from a track, the title is the whole credit ("A, B & C") until the
     // page loads and swaps in the one artist's name. Searching a credit finds
     // nobody, so a title that reads as several artists waits for that swap; any
@@ -394,9 +415,12 @@ fun DetailScreen(
             ?: AppleArtistArtRepository.artFor(page.title)
         if (resolved != null) {
             appleArt = resolved
+            artistArtSettled = true
         } else if (artistArtAttempt < ARTIST_ART_LOOKUP_RETRIES) {
             delay(ARTIST_ART_RETRY_DELAY_MS)
             artistArtAttempt++
+        } else {
+            artistArtSettled = true
         }
     }
     LaunchedEffect(page.browseId, page.title, nameSettled, signatureEnabled, signatureBaseUrl, signatureUpdates) {
@@ -420,7 +444,7 @@ fun DetailScreen(
         }
     }
     val palette = rememberArtworkPalette(
-        imageUrl = appleArt?.heroUrl ?: page.thumbnailUrl,
+        imageUrl = appleArt?.heroUrl ?: page.thumbnailUrl.takeIf { !isArtist || artistArtSettled },
         keyColors = appleArt?.keyColors(),
     )
 
@@ -474,6 +498,9 @@ fun DetailScreen(
     // Albums only: a playlist's artwork is a collage and an artist page's is a
     // photograph, and neither is something a label publishes a canvas for.
     val canvasEnabled by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
+    val canvasOverCellular by AppSettings.canvasOverCellular.collectAsStateWithLifecycle()
+    val meteredConnection by AppSettings.meteredConnection.collectAsStateWithLifecycle()
+    val canvasAllowedNow = canvasEnabled && (meteredConnection != true || canvasOverCellular)
     val prioritizeSpotifyCanvas by AppSettings.prioritizeSpotifyCanvas.collectAsStateWithLifecycle()
     // The credit line the header shows is the artist as far as the catalogue
     // services are concerned. A browse card's subtitle sometimes omits it, in
@@ -485,13 +512,13 @@ fun DetailScreen(
         page.browseId,
         page.title,
         credit,
-        canvasEnabled,
+        canvasAllowedNow,
         prioritizeSpotifyCanvas,
         albumCanvasAttempt,
     ) {
         // An artist's clip is set below, by the lookup that finds it.
         if (isArtist) return@LaunchedEffect
-        if (!canvasEnabled || page.type != BrowseType.ALBUM) {
+        if (!canvasAllowedNow || page.type != BrowseType.ALBUM) {
             canvas = null
             return@LaunchedEffect
         }
@@ -501,6 +528,7 @@ fun DetailScreen(
         // PageBackground keeps the Navidrome sleeve visible underneath.
         val resolved = CanvasRepository.canvasForAlbum(page.title, credit)
         if (resolved != null) {
+            CanvasRepository.rememberAlbum(page.browseId, resolved)
             canvas = resolved
         } else if (canvas == null && albumCanvasAttempt < ALBUM_CANVAS_LOOKUP_RETRIES) {
             delay(ALBUM_CANVAS_RETRY_DELAY_MS)
@@ -569,6 +597,7 @@ fun DetailScreen(
                         artHeight = artHeight,
                         listState = listState,
                         heroUrl = appleArt?.heroUrl,
+                        showArtwork = artistArtSettled,
                         modifier = Modifier.matchParentSize(),
                     )
                 }
@@ -809,6 +838,52 @@ fun DetailScreen(
                                 color = palette.divider,
                             )
                         }
+                    }
+                }
+            }
+
+            if (isArtist && essentialAlbumItems.isNotEmpty()) {
+                item(key = "essential-albums-heading") {
+                    Column(Modifier.padding(top = 12.dp)) {
+                        SectionHeading(
+                            title = stringResource(R.string.navidrome_essential_albums),
+                            palette = palette,
+                            horizontalPadding = ARTIST_CONTENT_GUTTER,
+                        )
+                    }
+                }
+                items(
+                    items = if (essentialAlbumsExpanded) essentialAlbumItems else essentialAlbumItems.take(3),
+                    key = { "essential:${it.browseId ?: it.title}" },
+                ) { item ->
+                    EssentialAlbumRow(
+                        item = item,
+                        palette = palette,
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = tween(durationMillis = 180),
+                            fadeOutSpec = tween(durationMillis = 140),
+                            placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        ),
+                        onClick = { onSectionItemClick(item) },
+                        onLongPress = onSectionItemLongPress?.let { { it(item) } },
+                    )
+                }
+                if (essentialAlbumItems.size > 3) {
+                    item(key = "essential-albums-toggle") {
+                        Text(
+                            text = stringResource(
+                                if (essentialAlbumsExpanded) R.string.show_less else R.string.show_more,
+                            ),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = palette.accent,
+                            modifier = Modifier
+                                .clickable { essentialAlbumsExpanded = !essentialAlbumsExpanded }
+                                .padding(
+                                    start = ARTIST_CONTENT_GUTTER,
+                                    top = ESSENTIAL_ALBUM_ROW_VERTICAL_PADDING,
+                                    bottom = ESSENTIAL_ALBUM_ROW_VERTICAL_PADDING,
+                                ),
+                        )
                     }
                 }
             }
@@ -1329,7 +1404,7 @@ private fun ArtistHeader(
                     if (isSignatureSvg) {
                         size(SVG_DECODE_WIDTH, (SVG_DECODE_WIDTH / aspect).roundToInt())
                     } else {
-                        size(coil3.size.Size.ORIGINAL)
+                        size(Size.ORIGINAL)
                     }
                     if (isSignatureScan) transformations(SignatureInkTransformation)
                 }.build()
@@ -1433,6 +1508,7 @@ private fun PageBackground(
     artHeight: Dp,
     listState: LazyListState,
     heroUrl: String? = null,
+    showArtwork: Boolean = true,
     artPx: Int? = HEADER_ART_PX,
     modifier: Modifier = Modifier,
 ) {
@@ -1442,7 +1518,8 @@ private fun PageBackground(
     // freeze the bottom of the video into the wrong picture.
     val softenFoot = canvas == null && !reduceDynamicBlur &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val art = heroUrl ?: if (artPx == null) page.thumbnailUrl.originalArtwork() else page.thumbnailUrl.artworkAt(artPx)
+    val art = if (!showArtwork) null else heroUrl
+        ?: if (artPx == null) page.thumbnailUrl.originalArtwork() else page.thumbnailUrl.artworkAt(artPx)
     val nativeArtRequest = remember(art) {
         ImageRequest.Builder(context)
             .data(art)
@@ -1898,7 +1975,7 @@ private fun AboutSignature(
             if (isSvg) {
                 size(SVG_DECODE_WIDTH, (SVG_DECODE_WIDTH / aspect).roundToInt())
             } else {
-                size(coil3.size.Size.ORIGINAL)
+                size(Size.ORIGINAL)
                 transformations(SignatureInkTransformation)
             }
         }.build()
@@ -2069,6 +2146,79 @@ private fun CompactSongRow(
             DownloadedBadge(song.videoId, downloadedTint)
         }
         RowMoreButton(onClick = onLongPress, tint = palette.onBackgroundVariant)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EssentialAlbumRow(
+    item: ShelfItem,
+    palette: ArtworkPalette,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)?,
+) {
+    val details = item.subtitle.split('·').map(String::trim).filter(String::isNotEmpty)
+    Column(
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .longPressMenuClickable(onClick = onClick, onLongClick = onLongPress)
+                .padding(horizontal = ARTIST_CONTENT_GUTTER, vertical = ESSENTIAL_ALBUM_ROW_VERTICAL_PADDING),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = item.thumbnailUrl.artworkAt(ROW_ART_PX),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(ESSENTIAL_ALBUM_ART_SIZE)
+                    .clip(RoundedCornerShape(8.dp))
+                    .thumbnailBorder(RoundedCornerShape(8.dp))
+                    .background(palette.elevated),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = palette.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = details.firstOrNull().orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.onBackgroundVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                details.drop(1).joinToString(" · ").takeIf(String::isNotBlank)?.let { year ->
+                    Text(
+                        text = year,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Icon(
+                imageVector = BitChordIcons.ChevronRight,
+                contentDescription = null,
+                tint = palette.onBackgroundVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(
+                start = ARTIST_CONTENT_GUTTER + ESSENTIAL_ALBUM_ART_SIZE + 12.dp,
+                end = ARTIST_CONTENT_GUTTER,
+            ),
+            thickness = 0.5.dp,
+            color = palette.divider,
+        )
     }
 }
 
@@ -2320,13 +2470,15 @@ private fun SectionCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = item.subtitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = palette.onBackgroundVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (item.subtitle.isNotBlank()) {
+            Text(
+                text = item.subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.onBackgroundVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

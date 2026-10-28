@@ -38,19 +38,11 @@ import com.music.bitchord.data.settings.AppSettings
 import kotlin.math.roundToInt
 
 @Composable
-fun AccountAndScrobblingScreen(
-    signedIn: Boolean,
-    account: Account?,
-    channelName: String?,
-    onSignIn: () -> Unit,
-    onSwitchChannel: () -> Unit,
-    onSignOut: () -> Unit,
+internal fun IntegrationSettingsSections(
     onOpenListenBrainzLogin: () -> Unit,
     onOpenLastfmLogin: () -> Unit,
     onOpenDiscord: () -> Unit,
     onOpenSpotify: () -> Unit,
-    contentPadding: PaddingValues,
-    modifier: Modifier = Modifier,
 ) {
     val lastfmEnabled by AppSettings.lastfmEnabled.collectAsStateWithLifecycle()
     val lastfmUsername by AppSettings.lastfmUsername.collectAsStateWithLifecycle()
@@ -69,45 +61,7 @@ fun AccountAndScrobblingScreen(
     val discordRpcEnabled by AppSettings.discordRpcEnabled.collectAsStateWithLifecycle()
     val spotifyConnected by AppSettings.spotifySpdcToken.collectAsStateWithLifecycle()
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(contentPadding),
-    ) {
-        Text(
-            text = stringResource(R.string.account_integrations),
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 14.dp),
-        )
-
-        // One card: who is signed in, which profile is listening, and the way
-        // out, with the explanation of profiles underneath.
-        SettingsGroup(
-            footer = if (signedIn) stringResource(R.string.account_profiles_help) else null,
-            topSpacing = 0.dp,
-        ) {
-            AccountCard(
-                signedIn = signedIn,
-                account = account,
-                onSignIn = onSignIn,
-                onClick = onSwitchChannel,
-                grouped = true,
-            )
-            if (signedIn) {
-                FullWidthDivider()
-                SettingsRow(
-                    icon = Icons.Rounded.SwitchAccount,
-                    title = stringResource(R.string.listen_as),
-                    subtitle = channelName ?: stringResource(R.string.default_youtube_profile),
-                    onClick = onSwitchChannel,
-                )
-                FullWidthDivider()
-                DestructiveRow(label = stringResource(R.string.sign_out), onClick = onSignOut)
-            }
-        }
-
+    Column(Modifier.fillMaxWidth()) {
         SettingsGroup(
             header = stringResource(R.string.spotify),
             footer = stringResource(R.string.spotify_connect_subtitle),

@@ -46,6 +46,8 @@ data class Song(
     val albumId: String? = null,
     /** Names the album page header, which [albumId] alone can't. */
     val albumName: String? = null,
+    /** Album artist, distinct from a track's performer and guest credits. */
+    val albumArtist: String? = null,
     /** A music-video upload rather than the catalogue track. */
     val isVideo: Boolean = false,
     /**
@@ -594,6 +596,8 @@ data class DetailPage(
      * fetched with a session; see [SubscriptionState].
      */
     val subscription: SubscriptionState? = null,
+    /** Native Navidrome albums tagged as essential, populated asynchronously on artist pages. */
+    val essentialAlbumBrowseIds: Set<String> = emptySet(),
 )
 
 /**

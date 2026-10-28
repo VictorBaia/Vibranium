@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,7 +42,9 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import com.music.bitchord.data.model.CARD_ART_PX
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.model.originalArtwork
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.floor
@@ -100,21 +103,40 @@ fun rememberFullArtworkBlurImage(
     val context = LocalPlatformContext.current
     var image by remember(imageUrl) { mutableStateOf(imageUrl?.let(fullBlurCache::get)) }
 
+    val blurVersion = fullBlurCacheVersion.intValue
+    LaunchedEffect(imageUrl, blurVersion) {
+        if (image == null && imageUrl != null) image = fullBlurCache[imageUrl]
+    }
+
     LaunchedEffect(imageUrl, artPx, prepare) {
         if (!prepare || imageUrl == null || image != null) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
             // Same URL as the player's 1200px sleeve, so this is a small decode
             // from Coil's shared fetch/disk result rather than another download.
-            .data(imageUrl.artworkAt(artPx))
+            // Decode small, but fetch the exact same source as the main cover.
+            // A Navidrome size=128 URI would start a second HTTP request even
+            // when the original cover was already arriving for the player.
+            .data(if (imageUrl.startsWith("bitchord://navidrome-artwork/"))
+                imageUrl.originalArtwork() else imageUrl.artworkAt(minOf(artPx, CARD_ART_PX)))
             .size(FULL_BLUR_SOURCE_PX)
             .forPixelAccess()
             .build()
-        val result = SingletonImageLoader.get(context).execute(request)
-        val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@LaunchedEffect
-        val blurred = withContext(Dispatchers.Default) { bitmap.boxBlurred(FULL_BLUR_PASSES) }
-        val ready = blurred
-        fullBlurCache[imageUrl] = ready
-        image = ready
+        repeat(3) { attempt ->
+            if (attempt > 0) delay(400L * attempt)
+            val result = try {
+                SingletonImageLoader.get(context).execute(request)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@repeat
+            val blurred = withContext(Dispatchers.Default) { bitmap.boxBlurred(FULL_BLUR_PASSES) }
+            fullBlurCache[imageUrl] = blurred
+            fullBlurCacheVersion.intValue++
+            image = blurred
+            return@LaunchedEffect
+        }
     }
     return image
 }
@@ -216,10 +238,24 @@ fun rememberArtworkMesh(
     }
     LaunchedEffect(mesh) { heldMesh.value = mesh }
 
+    // The next cover is warmed by a separate composition. Observe its cache
+    // completion so a queue transition can use that mesh immediately instead
+    // of starting a second fetch after the main cover has changed.
+    val cacheVersion = meshCacheVersion.intValue
+    LaunchedEffect(imageUrl, cacheVersion) {
+        if (imageUrl != null && meshUrl != imageUrl) {
+            meshCache[imageUrl]?.let { ready ->
+                mesh = ready
+                meshUrl = imageUrl
+            }
+        }
+    }
+
     LaunchedEffect(imageUrl, artPx) {
         if (imageUrl == null || meshUrl == imageUrl) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
-            .data(imageUrl.artworkAt(artPx))
+            .data(if (imageUrl.startsWith("bitchord://navidrome-artwork/"))
+                imageUrl.originalArtwork() else imageUrl.artworkAt(minOf(artPx, CARD_ART_PX)))
             .size(MESH_PX)
             .forPixelAccess() // the sleeve has to be read back pixel by pixel
             .build()
@@ -231,12 +267,19 @@ fun rememberArtworkMesh(
         // reason; see [NowPlayingScreen]'s artAttempt.
         repeat(MESH_ATTEMPTS) { attempt ->
             if (attempt > 0) delay(MESH_RETRY_DELAY_MS)
-            val result = SingletonImageLoader.get(context).execute(request)
+            val result = try {
+                SingletonImageLoader.get(context).execute(request)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
             val bitmap = (result as? SuccessResult)?.image?.toImageBitmap()
             if (bitmap != null) {
                 val found = withContext(Dispatchers.Default) { meshOf(bitmap, imageUrl.hashCode()) }
                 if (found != null) {
                     meshCache[imageUrl] = found
+                    meshCacheVersion.intValue++
                     mesh = found
                 }
                 // A cover that decoded but had no mesh in it — see [meshOf] —
@@ -257,7 +300,10 @@ fun rememberArtworkMesh(
         mesh = withContext(Dispatchers.Default) { meshOf(frame, imageUrl?.hashCode() ?: 0) } ?: mesh
         meshUrl = imageUrl
     }
-    return mesh
+    // A preview callback can publish the mesh in the same composition that
+    // makes the new sleeve visible. Read it directly instead of waiting for
+    // LaunchedEffect's following frame; moving covers still use live frames.
+    return if (canvasFrame == null && imageUrl != null) meshCache[imageUrl] ?: mesh else mesh
 }
 
 /**
@@ -438,6 +484,7 @@ private const val FULL_BLUR_PASSES = 3
 private val fullBlurCache = object : LinkedHashMap<String, ImageBitmap>(0, 0.75f, true) {
     override fun removeEldestEntry(eldest: Map.Entry<String, ImageBitmap>) = size > 8
 }
+private val fullBlurCacheVersion = mutableIntStateOf(0)
 
 /** Three small box passes approximate a broad Gaussian blur at thumbnail scale. */
 private fun ImageBitmap.boxBlurred(passes: Int): ImageBitmap {
@@ -504,6 +551,15 @@ private fun boxBlurPass(
  */
 private val meshCache = object : LinkedHashMap<String, ArtworkMesh>(0, 0.75f, true) {
     override fun removeEldestEntry(eldest: Map.Entry<String, ArtworkMesh>) = size > MESH_CACHE_ENTRIES
+}
+private val meshCacheVersion = mutableIntStateOf(0)
+
+/** Use the player's already decoded preview to hand off its cover and mirror together. */
+internal fun publishPlayerArtworkMesh(imageUrl: String, preview: ImageBitmap) {
+    if (meshCache.containsKey(imageUrl)) return
+    val mesh = meshOf(preview, imageUrl.hashCode()) ?: return
+    meshCache[imageUrl] = mesh
+    meshCacheVersion.intValue++
 }
 
 /** A session's worth of covers, at four kilobytes of texture each. */

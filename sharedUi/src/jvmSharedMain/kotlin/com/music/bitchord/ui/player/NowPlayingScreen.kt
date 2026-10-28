@@ -201,7 +201,6 @@ internal const val ART_RETRY_DELAY_MS = 1_500L
  * on it. Long enough to cover the album lookup on a normal connection, short
  * enough not to be noticed on a track that has no album to find.
  */
-internal const val ALBUM_SETTLE_MS = 700L
 
 /** Long enough for the post-upgrade rollback cue to be noticed without lingering. */
 private const val REVERT_CUE_MS = 2_600L
@@ -750,6 +749,11 @@ fun NowPlayingScreen(
     // every surface below reads the same value rather than each triggering
     // its own extraction.
     val remoteArt = rememberRemoteArtworkUrl(song)
+    val upcoming = queue.getOrNull(queueIndex + 1)
+    PrefetchUpcomingArtwork(upcoming)
+    PrefetchUpcomingCanvas(upcoming)
+    rememberArtworkMesh(upcoming?.thumbnailUrl)
+    rememberFullArtworkBlurImage(upcoming?.thumbnailUrl)
     // This is produced by the palette's existing 128 px decode and cache. It
     // samples the upper band rather than the whole sleeve because that is what
     // lies beneath the status bar when the player expands to full bleed.
@@ -875,13 +879,10 @@ fun NowPlayingScreen(
         mutableStateOf(restoredPlayerScreen == LastPlayerScreen.LYRICS)
     }
     val queueSlide = remember { mutableFloatStateOf(0f) }
-    // Expensive, song-scoped preparation is deliberately staggered. The small
-    // backdrop decode runs after the track hand-off has settled; lyrics and
-    // queue are then composed offscreen on separate beats rather than all three
-    // competing with the song change. Opening a panel early bypasses its wait.
+    // The backdrop is visible immediately, so its tiny decode starts with the
+    // new song. Lyrics and queue still wait until the track hand-off settles.
     var playerPrewarmStage by remember(song.videoId) { mutableIntStateOf(0) }
     LaunchedEffect(song.videoId) {
-        delay(600)
         playerPrewarmStage = 1 // 128px backdrop decode + CPU blur
         delay(650)
         playerPrewarmStage = 2 // lyrics layout
@@ -1261,7 +1262,7 @@ fun NowPlayingScreen(
     // first, had nothing left to do.
     LaunchedEffect(art, canvasRenderedState) {
         if (heroSettled) return@LaunchedEffect
-        snapshotFlow { art.loaded || canvasRenderedState.value }.first { it }
+        snapshotFlow { art.anyLoaded || canvasRenderedState.value }.first { it }
         heroSettled = true
         lastHeroSettled = true
     }
@@ -1346,7 +1347,7 @@ fun NowPlayingScreen(
         targetValue = if (
             // Latched first, so a clip coming and going isn't listened for
             // once the banner has settled — see [heroSettled].
-            heroMode && (heroSettled || art.loaded || canvasRendered)
+            heroMode && (heroSettled || art.anyLoaded || canvasRendered)
         ) 1f else 0f,
         animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
         label = "heroCanvas",
@@ -1599,8 +1600,7 @@ fun NowPlayingScreen(
     val fullArtworkBlurImage = rememberFullArtworkBlurImage(
         imageUrl = remoteArt,
         artPx = ART_PX,
-        prepare = landscape || tabletArtworkBackdrop || lyricsOpen || queueOpen ||
-            playerPrewarmStage >= 1,
+        prepare = true,
     )
     // One movable Image node, not two backdrop call sites. Compose carries it
     // between the portrait and landscape players; only the cached bitmap
@@ -1800,8 +1800,11 @@ fun NowPlayingScreen(
                     artwork = { artworkModifier ->
                         LandscapeArtwork(
                             artRequest = art.request,
+                            previewRequest = art.previewRequest,
                             artLoaded = art.loaded,
+                            previewLoaded = art.previewLoaded,
                             onArtState = art::onState,
+                            onPreviewState = art::onPreviewState,
                             canvas = canvas,
                             canvasRendered = canvasRendered,
                             isPlaying = isPlaying,
@@ -2870,14 +2873,14 @@ fun NowPlayingScreen(
                                     // collapse, once the dissolve has all but gone. Let
                                     // go of on the way to the mini player, whose cover
                                     // sits flat in its bar.
-                                    shadowElevation = if (art.loaded) {
+                                    shadowElevation = if (art.anyLoaded) {
                                         10.dp.toPx() * (1f - 2f * shown).coerceAtLeast(0f) * dockT()
                                     } else {
                                         0f
                                     }
                                     shape = dockFrame.cornerShape(sleeveCorner())
                                     // What `.shadow` did: it clips only when it casts.
-                                    clip = art.loaded
+                                    clip = art.anyLoaded
                                 }
                                 .graphicsLayer {
                                     // Clipped a second time, as `.shadow` and then
@@ -2959,7 +2962,7 @@ fun NowPlayingScreen(
                                     .background(Color.Black.copy(alpha = 0.18f)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (!art.loaded && !canvasRendered) {
+                                if (!art.anyLoaded && !canvasRendered) {
                                     Icon(
                                         imageVector = BitChordIcons.MusicNote,
                                         contentDescription = null,
@@ -2974,6 +2977,15 @@ fun NowPlayingScreen(
                                     )
                                 }
                             }
+            AsyncImage(
+                                model = art.previewRequest,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                onState = art::onPreviewState,
+                                modifier = Modifier.fillMaxSize().drawWithContent {
+                                    if (!art.loaded && !canvasRendered) drawContent()
+                                },
+                            )
                             AsyncImage(
                                 // Decode at the sleeve's *expanded* size, always.
                                 // Coil otherwise sizes the decode to however large
@@ -3198,7 +3210,6 @@ fun NowPlayingScreen(
                                 // Only the title's own overflow gates the artist's stagger
                                 // below — an artist line that's long on its own has no
                                 // reason to wait on a title that already fits.
-                                var titleOverflowing by remember { mutableStateOf(false) }
                                 // Only while these credits are the screen. Collapsed into
                                 // a header over the queue or the lyrics they are a label
                                 // on a list, and a label that crawls pulls the eye off
@@ -3212,6 +3223,7 @@ fun NowPlayingScreen(
                                 val scrolls = {
                                     !(lyricsOpen || queueOpen || queueDragging) && !collapsePastSettling
                                 }
+                                var titleOverflowing by remember { mutableStateOf(false) }
                                 // Targeted on the words rather than the videoId: two
                                 // cuts that share a title cross-fade into the exact
                                 // same text, which is nothing at all and leaves the
@@ -3273,7 +3285,7 @@ fun NowPlayingScreen(
                             if (signedIn && song.localUri == null) {
                                 val liked = likeStatus == LikeStatus.LIKE
                                 CircleGlyph(
-                                    icon = if (liked) BitChordIcons.HeartFilled else BitChordIcons.Heart,
+                                    icon = if (liked) BitChordIcons.StarFilled else BitChordIcons.Star,
                                     contentDescription = stringResource(
                                         if (liked) Res.string.remove_from_liked else Res.string.like,
                                     ),

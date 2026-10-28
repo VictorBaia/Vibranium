@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.data.Http
 import com.music.bitchord.data.artwork.PersistentArtworkCache
@@ -24,6 +25,7 @@ class NavidromeArtworkProvider : ContentProvider() {
         val size = uri.getQueryParameter("size")?.toIntOrNull()?.takeIf { it in MIN_ARTWORK_SIZE..MAX_ARTWORK_SIZE }
         val pipe = ParcelFileDescriptor.createPipe()
         thread(name = "navidrome-notification-art") {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { output ->
                 runCatching {
                     val config = (NavidromeStore.state.value as? NavidromeStore.State.Configured)?.config
@@ -33,15 +35,29 @@ class NavidromeArtworkProvider : ContentProvider() {
                     }
                     val diskCache = context?.let { SingletonImageLoader.get(it).diskCache }
                     val cacheKey = PersistentArtworkCache.key("navidrome-artwork", internalUri)
-                    if (PersistentArtworkCache.copyTo(diskCache, cacheKey, output)) return@runCatching
+                    if (PersistentArtworkCache.copyTo(
+                            diskCache,
+                            cacheKey,
+                            output,
+                            MAX_NOTIFICATION_ARTWORK_BYTES,
+                        )
+                    ) return@runCatching
                     Http.client.newCall(Request.Builder()
                         .url(NavidromeMediaResolver.artworkUrl(config, internalUri))
                         .build()).execute().use { response ->
                         if (!response.isSuccessful) throw FileNotFoundException("Cover request failed")
                         val body = response.body ?: throw FileNotFoundException("Cover response was empty")
-                        val bytes = body.bytes()
-                        PersistentArtworkCache.store(diskCache, cacheKey, bytes, body.contentType()?.toString())
-                        output.write(bytes)
+                        if (body.contentLength() > MAX_NOTIFICATION_ARTWORK_BYTES) {
+                            throw FileNotFoundException("Notification cover is too large")
+                        }
+                        PersistentArtworkCache.storeStreamToOutput(
+                            cache = diskCache,
+                            key = cacheKey,
+                            input = body.byteStream(),
+                            output = output,
+                            maxBytes = MAX_NOTIFICATION_ARTWORK_BYTES,
+                            mimeType = body.contentType()?.toString(),
+                        )
                     }
                 }
             }
@@ -54,11 +70,15 @@ class NavidromeArtworkProvider : ContentProvider() {
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 
     companion object {
-        fun uri(coverId: String, size: Int? = null): Uri = Uri.Builder().scheme("content")
-            .authority("${BuildConfig.APPLICATION_ID}.navidrome-artwork")
-            .appendPath(coverId)
-            .apply { size?.takeIf { it in MIN_ARTWORK_SIZE..MAX_ARTWORK_SIZE }?.let { appendQueryParameter("size", it.toString()) } }
-            .build()
+        fun uri(coverId: String, size: Int? = null): Uri {
+            val boundedSize = size?.takeIf { it in MIN_ARTWORK_SIZE..MAX_ARTWORK_SIZE }
+                ?: DEFAULT_NOTIFICATION_ARTWORK_SIZE
+            return Uri.Builder().scheme("content")
+                .authority("${BuildConfig.APPLICATION_ID}.navidrome-artwork")
+                .appendPath(coverId)
+                .appendQueryParameter("size", boundedSize.toString())
+                .build()
+        }
 
         /**
          * Restores the app's original authenticated artwork identity from the
@@ -76,5 +96,7 @@ class NavidromeArtworkProvider : ContentProvider() {
 
         private const val MIN_ARTWORK_SIZE = 64
         private const val MAX_ARTWORK_SIZE = 1_200
+        private const val DEFAULT_NOTIFICATION_ARTWORK_SIZE = 512
+        private const val MAX_NOTIFICATION_ARTWORK_BYTES = 8L * 1024 * 1024
     }
 }

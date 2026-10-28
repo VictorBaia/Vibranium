@@ -27,6 +27,10 @@ internal object NavidromeStore {
 
     private var preferences: SharedPreferences? = null
 
+    /** Retain only the non-secret address after logout so reconnect can prefill it. */
+    val lastServerUrl: String?
+        get() = preferences?.getString(KEY_LAST_SERVER_URL, null)
+
     @Synchronized
     fun init(context: Context) {
         if (mutableState.value !is State.NotInitialized) return
@@ -50,6 +54,7 @@ internal object NavidromeStore {
         check(
             prefs.edit()
                 .putString(KEY_SERVER_URL, NavidromeConfig.normalizeServerUrl(effective.serverUrl))
+                .putString(KEY_LAST_SERVER_URL, NavidromeConfig.normalizeServerUrl(effective.serverUrl))
                 .putString(KEY_USERNAME, effective.username.trim())
                 .putString(KEY_CREDENTIAL_KIND, kind)
                 .putString(KEY_SECRET, secret)
@@ -65,7 +70,11 @@ internal object NavidromeStore {
     @Synchronized
     fun clear(): Result<Unit> = runCatching {
         val prefs = preferences ?: error("Secure Navidrome storage is unavailable")
-        check(prefs.edit().clear().commit()) { "Could not clear encrypted Navidrome configuration" }
+        val lastUrl = prefs.getString(KEY_SERVER_URL, null)
+            ?: prefs.getString(KEY_LAST_SERVER_URL, null)
+        check(prefs.edit().clear().putString(KEY_LAST_SERVER_URL, lastUrl).commit()) {
+            "Could not clear encrypted Navidrome configuration"
+        }
         mutableState.value = State.NotConfigured
     }
 
@@ -100,6 +109,7 @@ internal object NavidromeStore {
 
     private const val STORE_NAME = "bitchord_navidrome"
     private const val KEY_SERVER_URL = "server_url"
+    private const val KEY_LAST_SERVER_URL = "last_server_url"
     private const val KEY_USERNAME = "username"
     private const val KEY_CREDENTIAL_KIND = "credential_kind"
     private const val KEY_SECRET = "secret"

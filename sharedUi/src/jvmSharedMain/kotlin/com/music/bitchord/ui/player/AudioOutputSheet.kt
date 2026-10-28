@@ -22,6 +22,8 @@ import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Earbuds
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.PhoneAndroid
@@ -46,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import org.jetbrains.compose.resources.vectorResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -380,7 +383,10 @@ private fun OutputRow(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = iconFor(device.kind),
+                imageVector = if (device.kind == AudioOutputKind.BLUETOOTH &&
+                    device.form == BluetoothForm.BUDS && isGalaxyBudsOutput(device.name)) {
+                    vectorResource(Res.drawable.ic_output_galaxy_buds)
+                } else iconFor(device),
                 contentDescription = null,
                 tint = Color.White.copy(alpha = if (active) 1f else 0.7f),
                 modifier = Modifier.size(21.dp),
@@ -482,11 +488,18 @@ private fun VolumeRow(routeKey: Any) {
     }
 }
 
-private fun iconFor(kind: AudioOutputKind): ImageVector = when (kind) {
+private fun iconFor(device: AudioOutputDevice): ImageVector = when (device.kind) {
     AudioOutputKind.PHONE -> Icons.Rounded.PhoneAndroid
     AudioOutputKind.WIRED -> Icons.Rounded.Headphones
     AudioOutputKind.USB -> Icons.Rounded.Usb
-    AudioOutputKind.BLUETOOTH -> Icons.Rounded.Bluetooth
+    // The same reading the output pill draws — see AudioOutputDevice.form.
+    AudioOutputKind.BLUETOOTH -> when (device.form) {
+        BluetoothForm.BUDS -> Icons.Rounded.Earbuds
+        BluetoothForm.HEADPHONES -> Icons.Rounded.Headphones
+        BluetoothForm.SPEAKER -> Icons.Rounded.Speaker
+        BluetoothForm.CAR -> Icons.Rounded.DirectionsCar
+        BluetoothForm.UNKNOWN -> Icons.Rounded.Bluetooth
+    }
     AudioOutputKind.HDMI -> Icons.Rounded.Tv
     AudioOutputKind.OTHER -> Icons.Rounded.Speaker
 }

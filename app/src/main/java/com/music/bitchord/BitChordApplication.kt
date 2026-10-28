@@ -1,11 +1,14 @@
 package com.music.bitchord
 
+import android.content.ComponentCallbacks2
+
 import android.app.Application
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.annotation.DelicateCoilApi
 import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
@@ -15,11 +18,13 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import okhttp3.OkHttpClient
 import com.music.bitchord.auth.AuthStore
 import com.music.bitchord.data.DebugLog
+import com.music.bitchord.data.CrashDiagnostics
 import com.music.bitchord.data.lyrics.LyricsTranslation
 import androidx.appcompat.app.AppCompatDelegate
 import com.music.bitchord.ui.player.AndroidPlayerHost
 import com.music.bitchord.ui.player.PlayerPlatform
 import com.music.bitchord.data.canvas.CanvasCache
+import com.music.bitchord.data.canvas.AppleArtistArtRepository
 import com.music.bitchord.data.smb.SmbCoverFetcher
 import com.music.bitchord.data.webdav.WebDavCoilAuth
 import com.music.bitchord.data.canvas.SpotifyToken
@@ -33,6 +38,7 @@ import com.music.bitchord.data.innertube.AndroidStreamHooks
 import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.catalog.AppCatalogRouter
 import com.music.bitchord.data.navidrome.NavidromeStore
+import com.music.bitchord.data.navidrome.AppNavidromeCatalogue
 import com.music.bitchord.data.navidrome.NavidromeAlbumEnrichment
 import com.music.bitchord.data.navidrome.NavidromeArtistEnrichment
 import com.music.bitchord.data.navidrome.NavidromeTranscoding
@@ -48,14 +54,37 @@ import com.music.bitchord.data.stats.ListeningStats
 import com.music.bitchord.download.Downloads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.thread
 
 class BitChordApplication : Application(), SingletonImageLoader.Factory {
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            // Visible art stays alive in its painter; evict only retained
+            // copies before the audio/video threads reach the heap ceiling.
+            SingletonImageLoader.get(this).memoryCache?.clear()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        SingletonImageLoader.get(this).memoryCache?.clear()
+    }
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        CrashDiagnostics.install(this)
         // The player is drawn by the shared UI module; this is what it reads
         // underneath — settings, the Canvas decoder, outputs, the party.
         AndroidStreamHooks.installEarly()
@@ -85,21 +114,31 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // PlaybackService shares this process, so seeding the cookie here means
         // stream resolution is authenticated from the first play onwards.
         authStore = AuthStore(this)
-        // Opened off the main thread, alongside everything below: none of these
-        // reads a setting or the session, and between them they are the slowest
-        // opens at startup — SourceRegistry's encrypted store most of all.
+        // Opened off the main thread: these are the slowest store opens at
+        // startup, SourceRegistry's encrypted store most of all. The UI waits
+        // for the Navidrome store to load before its first catalogue request.
         // Started only once [AuthStore] exists, because both encrypted stores
         // share one keystore master key and a first launch must not have two
-        // threads racing to create it. Joined before onCreate returns, so
-        // nothing that runs after startup can see any of them half open.
-        val backgroundInit = thread(name = "startup-init") {
-            SourceRegistry.init(this)
+        // threads racing to create it.
+        AppCatalogRouter.init(BuildConfig.NAVIDROME_MODE, NavidromeStore.state)
+        thread(name = "startup-init") {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             NavidromeStore.init(this)
-            NavidromeLyricsCache.init(this)
-            NavidromeArtistEnrichment.init(this)
-            NavidromeAlbumEnrichment.init(this)
-            NavidromeLyricsSettings.init(this)
-            AndroidStreamHooks.initInnerTubeX(this)
+            // The early router lets the first composition consult catalogue
+            // identity safely; recreate it now with the store's loaded state
+            // before the first catalogue request. Do this before optional
+            // source and enrichment stores so the first screen can load while
+            // they continue initializing.
+            AppCatalogRouter.init(BuildConfig.NAVIDROME_MODE, NavidromeStore.state)
+            if (BuildConfig.NAVIDROME_MODE) AppNavidromeCatalogue.initialize()
+            StartupInitialization.markReady()
+            runStartupInit("source registry") { SourceRegistry.init(this) }
+            runStartupInit("Navidrome lyrics cache") { NavidromeLyricsCache.init(this) }
+            runStartupInit("Navidrome artist enrichment") { NavidromeArtistEnrichment.init(this) }
+            runStartupInit("Apple artist art") { AppleArtistArtRepository.init(this) }
+            runStartupInit("Navidrome album enrichment") { NavidromeAlbumEnrichment.init(this) }
+            runStartupInit("Navidrome lyrics settings") { NavidromeLyricsSettings.init(this) }
+            runStartupInit("InnerTube hooks") { AndroidStreamHooks.initInnerTubeX(this) }
         }
         // Migration-safe: an old single cookie becomes the first encrypted
         // session, while newer installs restore the profile the listener chose.
@@ -123,10 +162,10 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             CoroutineScope(Dispatchers.IO).launch { Innertube.ensureSessionScope() }
         }
         AppSettings.init(this, authStore)
+        observeImageCacheLimit()
         // Its own directory: canvas clips are looping video, not audio. This
         // must open after AppSettings so its dynamic disk budget is restored
         // before the cache accepts its first write.
-        CanvasCache.init(this)
         NavidromeTranscoding.init(this)
         // Before anything resolves a track: an addon with `checkValidLossless`
         // is gated on this, and the gate reads "no" until it has looked.
@@ -153,9 +192,6 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         ListeningStats.init(this)
         // After AppSettings, whose switch decides whether half of it runs.
         ArtistFacts.init(this)
-        // One cache directory can only be opened once per process, and
-        // PlaybackService shares this one — so it's opened here, not there.
-        AudioCache.init(this)
         // The offscreen WebView that mints a Spotify access token from the
         // listener's own session cookie needs a Context, and nothing in the
         // suspend call chain that reaches it (a track's canvas lookup) has
@@ -166,19 +202,52 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // untouched. Wipe both on the first launch of a higher versionCode so a
         // format or key change between builds can't serve stale or mismatched
         // bytes from a cache the new code didn't write.
-        if (AppSettings.consumeVersionUpdate(BuildConfig.VERSION_CODE)) {
-            AudioCache.clear()
-            SingletonImageLoader.get(this).let { loader ->
-                loader.memoryCache?.clear()
-                loader.diskCache?.clear()
+        val clearVersionedCaches = AppSettings.consumeVersionUpdate(BuildConfig.VERSION_CODE)
+        // SimpleCache scans its on-disk index on open. AudioCache also walks
+        // every key to migrate old entries, so opening either cache here made
+        // the Android splash wait on disk work on the main thread.
+        thread(name = "cache-init") {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            runStartupInit("canvas cache") { CanvasCache.init(this) }
+            val audioCacheReady = runStartupInit("audio cache") { AudioCache.init(this) }
+            if (clearVersionedCaches && audioCacheReady) {
+                AudioCache.clear()
+            }
+            if (clearVersionedCaches) {
+                SingletonImageLoader.get(this).let { loader ->
+                    loader.memoryCache?.clear()
+                    loader.diskCache?.clear()
+                }
             }
         }
         // Initialize LastFM with saved settings if available
         initLastfm()
         // The public "apps open right now" count; see Presence.
         com.music.bitchord.data.presence.AndroidPresence.install(this)
-        backgroundInit.join()
-        AppCatalogRouter.init(BuildConfig.NAVIDROME_MODE, NavidromeStore.state)
+    }
+
+    private inline fun runStartupInit(name: String, block: () -> Unit): Boolean {
+        val result = runCatching(block)
+        result.onFailure { error ->
+            android.util.Log.e("BitChord", "Startup initialization failed: $name", error)
+        }
+        return result.isSuccess
+    }
+
+    @kotlin.OptIn(DelicateCoilApi::class)
+    private fun observeImageCacheLimit() {
+        CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()).launch {
+            AppSettings.imageCacheLimitBytes.drop(1).collectLatest {
+                // A slider drag emits many values; reopen Coil's disk cache only
+                // after the listener has settled on one. Coil's limit is fixed
+                // when the cache is built, unlike the audio/video evictors.
+                delay(700)
+                withContext(NonCancellable + Dispatchers.IO) {
+                    SingletonImageLoader.get(this@BitChordApplication).shutdown()
+                    SingletonImageLoader.setUnsafe(this@BitChordApplication as SingletonImageLoader.Factory)
+                }
+            }
+        }
     }
 
     /**
@@ -233,7 +302,9 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.20)
+                    // Keep room for the audio player, video decoder and
+                    // Compose surfaces on devices with a 256 MB heap.
+                    .maxSizePercent(context, 0.12)
                     .build()
             }
             .diskCache {
