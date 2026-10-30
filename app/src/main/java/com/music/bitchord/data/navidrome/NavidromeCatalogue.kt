@@ -3,6 +3,7 @@ package com.music.bitchord.data.navidrome
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.DetailPage
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeShelfKind
 import com.music.bitchord.data.model.LibraryPage
 import com.music.bitchord.data.model.MoodGenre
 import com.music.bitchord.data.model.MoodGenreSection
@@ -48,23 +49,23 @@ internal class NavidromeCatalogue(
         onShelf: (index: Int, shelf: HomeShelf) -> Unit = { _, _ -> },
     ): Result<List<HomeShelf>> = supervisorScope {
         val requests = listOf(
-            NavidromeAlbumListType.NEWEST to labels.newest,
-            NavidromeAlbumListType.RECENT to labels.recentlyPlayed,
-            NavidromeAlbumListType.FREQUENT to labels.frequentlyPlayed,
-            NavidromeAlbumListType.RANDOM to labels.randomAlbums,
+            Triple(NavidromeAlbumListType.NEWEST, labels.newest, HomeShelfKind.NAVIDROME_NEWEST),
+            Triple(NavidromeAlbumListType.RECENT, labels.recentlyPlayed, HomeShelfKind.NAVIDROME_RECENT),
+            Triple(NavidromeAlbumListType.FREQUENT, labels.frequentlyPlayed, HomeShelfKind.NAVIDROME_FREQUENT),
+            Triple(NavidromeAlbumListType.RANDOM, labels.randomAlbums, HomeShelfKind.NAVIDROME_RANDOM),
         )
         // Avoid four large JSON bodies being decoded and mapped at the same
         // time during cold start. Results still publish as soon as each query
         // completes, with the initial shelves given priority by list order.
         val albumRequests = Semaphore(2)
         val completed = Channel<Pair<Int, Result<HomeShelf>>>(requests.size)
-        requests.forEachIndexed { index, (type, title) ->
+        requests.forEachIndexed { index, (type, title, kind) ->
             launch {
                 completed.send(index to runCatching {
                     val albums = albumRequests.withPermit {
                         repository.albums(type).valueOrThrow()
                     }
-                    withContext(Dispatchers.Default) { albumShelf(title, albums) }
+                    withContext(Dispatchers.Default) { albumShelf(title, albums, kind) }
                 })
             }
         }
@@ -90,6 +91,13 @@ internal class NavidromeCatalogue(
         when {
             available.isNotEmpty() || failures == 0 -> Result.success(available)
             else -> Result.failure(checkNotNull(firstFailure))
+        }
+    }
+
+    suspend fun recentlyPlayedShelf(labels: NavidromeCatalogueLabels): Result<HomeShelf> = runCatching {
+        val albums = repository.albums(NavidromeAlbumListType.RECENT).valueOrThrow()
+        withContext(Dispatchers.Default) {
+            albumShelf(labels.recentlyPlayed, albums, HomeShelfKind.NAVIDROME_RECENT)
         }
     }
 
@@ -639,7 +647,11 @@ internal class NavidromeCatalogue(
     private fun songsState(songs: List<Song>): UiState<List<Song>> =
         if (songs.isEmpty()) UiState.Error("") else UiState.Success(songs)
 
-    private fun albumShelf(title: String, albums: List<NavidromeAlbum>) = HomeShelf(
+    private fun albumShelf(
+        title: String,
+        albums: List<NavidromeAlbum>,
+        kind: HomeShelfKind = HomeShelfKind.GENERIC,
+    ) = HomeShelf(
         title,
         albums.map { album ->
             ShelfItem(
@@ -653,6 +665,7 @@ internal class NavidromeCatalogue(
                 NavidromeIds.album(album.id),
             )
         },
+        kind = kind,
     )
 
     /**

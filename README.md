@@ -66,10 +66,10 @@ Consulte os pacotes em [Releases](https://github.com/VictorBaia/Vibranium/releas
 Use **JDK 17**, Android SDK e, para componentes nativos, Android NDK e CMake. O aplicativo compila com **API 37**, tem como alvo **API 36** e suporta **API 26+**. Configure `sdk.dir` em `local.properties` ou defina `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
 
 ```bash
-./gradlew :app:assembleDevDebug
+./gradlew :app:assembleDevOptimized
 ./gradlew :tv:assembleProdDebug
 ./gradlew :wearos:assembleDevDebug
-./gradlew :app:testDevDebugUnitTest
+./gradlew :app:testDevOptimizedUnitTest
 ```
 
 No Windows, use `gradlew.bat`. Os módulos Android só são incluídos quando há SDK configurado. Builds de produção assinados exigem a configuração descrita em [`keystore.properties.example`](keystore.properties.example).

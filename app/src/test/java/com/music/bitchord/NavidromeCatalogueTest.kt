@@ -65,6 +65,30 @@ class NavidromeCatalogueTest {
     }
 
     @Test
+    fun `recent shelf refresh requests only recent albums`() = runBlocking {
+        val requested = mutableListOf<String>()
+        val transport = object : NavidromeTransport {
+            override suspend fun testConnection(config: NavidromeConfig) =
+                NavidromeConnectionResult.Connected("navidrome", "test", true)
+
+            override suspend fun request(
+                config: NavidromeConfig,
+                method: String,
+                parameters: Map<String, String>,
+            ): NavidromeApiResult<NavidromeResponse> {
+                requested += parameters["type"].orEmpty()
+                return NavidromeApiResult.Success(
+                    NavidromeResponse("ok", albumList2 = NavidromeAlbumList(emptyList())),
+                )
+            }
+        }
+        val refreshingCatalogue = NavidromeCatalogue(NavidromeRepository({ config }, transport))
+
+        assertEquals("Recent", refreshingCatalogue.recentlyPlayedShelf(labels).getOrThrow().title)
+        assertEquals(listOf("recent"), requested)
+    }
+
+    @Test
     fun `album and playlist details map into existing detail pages`() = runBlocking {
         val album = catalogue.detail("nd:album:album-1", "", "", null).getOrThrow()
         val playlist = catalogue.detail("nd:playlist:playlist-1", "", "", null).getOrThrow()

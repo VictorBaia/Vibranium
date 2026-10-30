@@ -31,27 +31,27 @@ Run Gradle commands from the repository root.
 
 Build:
 ```bash
-./gradlew assembleDevDebug
+./gradlew :app:assembleDevOptimized
 ```
 
 Windows:
 ```powershell
-.\gradlew.bat assembleDevDebug
+.\gradlew.bat :app:assembleDevOptimized
 ```
 
 Tests:
 ```bash
-./gradlew testDevDebugUnitTest
+./gradlew :app:testDevOptimizedUnitTest
 ```
 
 Windows:
 ```powershell
-.\gradlew.bat testDevDebugUnitTest
+.\gradlew.bat :app:testDevOptimizedUnitTest
 ```
 
 Run a specific test:
 ```bash
-./gradlew testDevDebugUnitTest --tests "com.music.bitchord.playback.audio.DirectAudioStreamingRegressionTest"
+./gradlew :app:testDevOptimizedUnitTest --tests "com.music.bitchord.playback.audio.DirectAudioStreamingRegressionTest"
 ```
 
 ## Code Quality

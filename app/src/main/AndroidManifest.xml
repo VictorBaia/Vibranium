@@ -421,6 +421,62 @@
             </intent-filter>
         </activity-alias>
 
+        <activity-alias
+            android:name=".LauncherNewIcon1"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_new_icon_1"
+            android:roundIcon="@mipmap/ic_new_icon_1"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherNewIcon2"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_new_icon_2"
+            android:roundIcon="@mipmap/ic_new_icon_2"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherNewIcon3"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_new_icon_3"
+            android:roundIcon="@mipmap/ic_new_icon_3"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherNewIcon4"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_new_icon_4"
+            android:roundIcon="@mipmap/ic_new_icon_4"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"

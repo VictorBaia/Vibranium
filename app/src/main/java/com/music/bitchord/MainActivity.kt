@@ -140,6 +140,7 @@ import com.music.bitchord.data.innertube.InnertubeParser
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.Account
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeShelfKind
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.PlaybackSourceType
 import com.music.bitchord.data.model.SearchFilter
@@ -722,6 +723,11 @@ private fun BitChordApp(
     val homeState by viewModel.home.collectAsStateWithLifecycle()
     val homeLoadingMore by viewModel.homeLoadingMore.collectAsStateWithLifecycle()
     val homeRecentlyPlayedLoading by viewModel.homeRecentlyPlayedLoading.collectAsStateWithLifecycle()
+    val homeNewestLabel = stringResource(R.string.navidrome_newest_albums)
+    val homeRecentLabel = stringResource(R.string.navidrome_recent_albums)
+    LaunchedEffect(homeNewestLabel, homeRecentLabel) {
+        viewModel.onHomeLocaleChanged(homeNewestLabel, homeRecentLabel)
+    }
 
     // The top bar's icon is the quiet, always-there nudge; this is the
     // once-per-launch popup version of the same news. `updateDialogShown`
@@ -3227,6 +3233,11 @@ private fun BitChordApp(
                             onLoadMore = viewModel::loadMoreHome,
                             loadingMore = homeLoadingMore,
                             recentlyPlayedLoading = homeRecentlyPlayedLoading,
+                            stableShelfKeys = BuildConfig.NAVIDROME_MODE,
+                            animateLoading = !BuildConfig.NAVIDROME_MODE,
+                            leadHero = !BuildConfig.NAVIDROME_MODE ||
+                                (homeState as? UiState.Success<List<HomeShelf>>)?.data?.firstOrNull()?.kind ==
+                                HomeShelfKind.NAVIDROME_NEWEST,
                         )
                         TAB_EXPLORE -> selectedMoodGenre?.let { category ->
                             MoodGenrePlaylistsScreen(

@@ -119,6 +119,7 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
+            isDefault = true
             applicationId = "com.dev.bitchord"
             resValue("string", "app_name", "Vibranium Dev")
         }
@@ -177,18 +178,12 @@ android {
             // app-release-unsigned.apk instead of failing outright.
             signingConfig = signingConfigs.findByName("release")
         }
-        /*
-         * The release build, installable next to the dev and prod apps: same R8,
-         * same non-debuggable runtime, signed with the debug key under its own
-         * package so it never replaces either. For measuring startup the way
-         * users get it and for checking that shrinking broke nothing — a debug
-         * build is interpreted and verified at runtime and says little about
-         * either. `./gradlew installDevBenchmark`.
-         */
-        create("benchmark") {
+        // The sole dev variant uses release optimizations with the debug key.
+        // It keeps the com.dev.bitchord package and its Navidrome session.
+        create("optimized") {
             initWith(getByName("release"))
+            isDefault = true
             signingConfig = signingConfigs.getByName("debug")
-            applicationIdSuffix = ".benchmark"
             matchingFallbacks += listOf("release")
         }
     }
@@ -235,6 +230,12 @@ android {
             )
         }
     }
+}
+
+androidComponents.beforeVariants { variant ->
+    val flavor = variant.productFlavors.firstOrNull { it.first == "env" }?.second
+    if (flavor == "dev" && variant.buildType != "optimized") variant.enable = false
+    if (flavor == "prod" && variant.buildType == "optimized") variant.enable = false
 }
 
 kotlin {
@@ -452,40 +453,6 @@ dependencies {
 }
 
 /*
- * A debug APK lands on the device uncompiled — `dumpsys package dexopt` reports
- * it as run-from-apk — so every launch verifies the whole app's classes at
- * runtime before a line of our code runs. Measured on the BlueStacks box, that
- * was about two seconds of every cold start and most of why the dev build felt
- * so much slower than a release one. `verify` is the cheapest filter that
- * removes it (~15s once per install), and unlike `speed` it leaves the debug
- * build debuggable exactly as before.
- *
- * Runs after `installDevDebug` from the command line. Android Studio's Run
- * button deploys on its own and never reaches this task, so from there run
- * `./gradlew verifyDevInstall` after installing.
- */
-val verifyDevInstall = tasks.register("verifyDevInstall") {
-    group = "install"
-    description = "Pre-verifies the installed dev build on every connected device."
-    val adb = androidComponents.sdkComponents.adb
-    doLast {
-        val adbPath = adb.get().asFile.absolutePath
-        val serials = ProcessBuilder(adbPath, "devices").start()
-            .inputStream.bufferedReader().readLines()
-            .drop(1)
-            .mapNotNull { line -> line.split('\t').takeIf { it.size == 2 && it[1] == "device" }?.get(0) }
-        serials.forEach { serial ->
-            logger.lifecycle("verifyDevInstall: compiling com.dev.bitchord on $serial")
-            ProcessBuilder(
-                adbPath, "-s", serial, "shell", "cmd", "package", "compile",
-                "-m", "verify", "-f", "com.dev.bitchord",
-            ).inheritIO().start().waitFor()
-        }
-    }
-}
-tasks.matching { it.name == "installDevDebug" }.configureEach { finalizedBy(verifyDevInstall) }
-
-/*
  * The watch app rides inside the phone app, so "BitChord for Wear OS" in
  * Settings can put it on a watch — or update it — with no computer involved.
  *
@@ -538,17 +505,19 @@ if (providers.gradleProperty("bitchord.bundleWear").orNull != "false" && findPro
     androidComponents.onVariants { variant ->
         val flavor = variant.productFlavors.firstOrNull { it.first == "env" }?.second ?: return@onVariants
         val type = variant.buildType ?: return@onVariants
-        // The benchmark build has no watch counterpart.
-        if (type != "debug" && type != "release") return@onVariants
+        if (type != "debug" && type != "release" && type != "optimized") return@onVariants
         val cap = variant.name.replaceFirstChar { it.uppercase() }
+        val wearType = if (type == "optimized") "debug" else type
+        val wearCap = flavor.replaceFirstChar { it.uppercase() } +
+            wearType.replaceFirstChar { it.uppercase() }
         val bundle = tasks.register<BundleWearApk>("bundleWearApk$cap") {
-            dependsOn(":wearos:assemble$cap")
+            dependsOn(":wearos:assemble$wearCap")
             // AGP 8.10 writes the signed APK used for embedding under
             // intermediates/apk; some IDE/build configurations also expose a
             // copy under outputs/apk. Accept both locations.
             apks.from(
-                rootProject.layout.projectDirectory.dir("wearos/build/intermediates/apk/$flavor/$type"),
-                rootProject.layout.projectDirectory.dir("wearos/build/outputs/apk/$flavor/$type"),
+                rootProject.layout.projectDirectory.dir("wearos/build/intermediates/apk/$flavor/$wearType"),
+                rootProject.layout.projectDirectory.dir("wearos/build/outputs/apk/$flavor/$wearType"),
             )
         }
         variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleWearApk::outputDir)

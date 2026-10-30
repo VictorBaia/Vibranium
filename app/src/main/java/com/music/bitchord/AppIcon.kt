@@ -27,7 +27,11 @@ enum class AppIcon(val alias: String, val iconRes: Int, val labelRes: Int, val p
     PixelGlass("LauncherPixelGlass", R.mipmap.ic_pixel_glass, R.string.app_icon_pixel_glass, R.mipmap.ic_pixel_glass_foreground),
     PixelGlassDark("LauncherPixelGlassDark", R.mipmap.ic_pixel_glass_dark, R.string.app_icon_pixel_glass_dark, R.mipmap.ic_pixel_glass_dark_foreground),
     PixelGlassClear("LauncherPixelGlassClear", R.mipmap.ic_pixel_glass_clear, R.string.app_icon_pixel_glass_clear, R.mipmap.ic_pixel_glass_clear_foreground),
-    PixelGlassClearDark("LauncherPixelGlassClearDark", R.mipmap.ic_pixel_glass_clear_dark, R.string.app_icon_pixel_glass_clear_dark, R.mipmap.ic_pixel_glass_clear_dark_foreground);
+    PixelGlassClearDark("LauncherPixelGlassClearDark", R.mipmap.ic_pixel_glass_clear_dark, R.string.app_icon_pixel_glass_clear_dark, R.mipmap.ic_pixel_glass_clear_dark_foreground),
+    NewIcon1("LauncherNewIcon1", R.mipmap.ic_new_icon_1, R.string.app_icon_new_1, R.mipmap.ic_new_icon_1_foreground),
+    NewIcon2("LauncherNewIcon2", R.mipmap.ic_new_icon_2, R.string.app_icon_new_2, R.mipmap.ic_new_icon_2_foreground),
+    NewIcon3("LauncherNewIcon3", R.mipmap.ic_new_icon_3, R.string.app_icon_new_3, R.mipmap.ic_new_icon_3_foreground),
+    NewIcon4("LauncherNewIcon4", R.mipmap.ic_new_icon_4, R.string.app_icon_new_4, R.mipmap.ic_new_icon_4_foreground);
 
     private fun component(context: Context) =
         ComponentName(context.packageName, "com.music.bitchord.$alias")

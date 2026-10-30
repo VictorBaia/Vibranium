@@ -54,7 +54,7 @@ import dev.chrisbanes.haze.hazeSource
  * against a real window, and the preview renderer has none, so the effect comes
  * out as a flat pane or as nothing at all. These previews are the place to
  * settle the bar's layout, type and colour; the blur itself has to be read on a
- * device — `./gradlew :app:installDevDebug`.
+ * device — `./gradlew :app:installDevOptimized`.
  */
 
 /** Stand-in feed rows, so the bars have something to sit over. */

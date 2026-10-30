@@ -49,6 +49,7 @@ import com.music.bitchord.data.model.AccountChannel
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.DetailPage
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeShelfKind
 import com.music.bitchord.data.model.withoutRepeatsOf
 import com.music.bitchord.data.model.LibraryPage
 import com.music.bitchord.data.model.LibraryState
@@ -151,6 +152,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Titles already on screen, so a later page can't repeat a shelf. */
     private val homeSeenTitles = mutableSetOf<String>()
+    private var homeLocaleLabels: Pair<String, String>? = null
 
     private val _homeLoadingMore = MutableStateFlow(false)
 
@@ -1726,7 +1728,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!homeStale) return
         homeStale = false
         // A first load already in flight will pick the new play up by itself.
-        if (_home.value is UiState.Success) refresh(Feed.HOME)
+        if (_home.value is UiState.Success && _homePendingShelves.value == 0) refresh(Feed.HOME)
+    }
+
+    /** Reload translated Navidrome headings after AppCompat recreates the Activity. */
+    fun onHomeLocaleChanged(newestLabel: String, recentLabel: String) {
+        val labels = newestLabel to recentLabel
+        val previous = homeLocaleLabels
+        homeLocaleLabels = labels
+        if (navidromeMode && previous != null && previous != labels && _signedIn.value) loadHome()
     }
 
     private fun loadAccount() {
@@ -1895,7 +1905,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         homeContinuation = null
         homeSeenTitles.clear()
         _homeLoadingMore.value = false
-        _homeRecentlyPlayedLoading.value = _signedIn.value
+        _homeRecentlyPlayedLoading.value = _signedIn.value && !navidromeMode
         if (navidromeMode) {
             // A first launch has no server yet. Keep the ViewModel usable while
             // MainActivity routes the listener to Navidrome Settings, rather
@@ -1911,13 +1921,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 AppNavidromeCatalogue.current.home(navidromeLabels()) { index, shelf ->
                     if (isCurrentHomeLoad(identity, generation)) {
                         partialShelves[index] = shelf
-                        _home.value = UiState.Success(partialShelves.values.toList())
+                        // Show the lead shelf promptly, then publish the remaining
+                        // shelves together. Several back-to-back Home updates
+                        // otherwise redraw the page sampled by Liquid Glass while
+                        // the restored player is connecting on a cold start.
+                        if (index == 0) {
+                            _home.value = UiState.Success(partialShelves.values.toList())
+                        }
                     }
                 }.fold(
                     onSuccess = { shelves ->
                         if (isCurrentHomeLoad(identity, generation)) {
                             _home.value = if (shelves.isEmpty()) UiState.Error(text(R.string.nothing_to_explore))
-                            else UiState.Success(partialShelves.values.toList())
+                            else UiState.Success(shelves)
                         }
                     },
                     onFailure = { if (isCurrentHomeLoad(identity, generation)) _home.value = UiState.Error(it.friendly()) },
@@ -1994,23 +2010,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (prepend) {
             // YouTube's core home can also contain a stale "Recently played"
             // shelf. The dedicated history endpoint wins and replaces it.
-            val replacing = shelves.map { it.title.lowercase(Locale.ROOT) }.toSet()
+            val replacing = shelves.map(::homeShelfIdentity).toSet()
             homeSeenTitles.addAll(replacing)
             _home.value = UiState.Success(shelves + existing.filterNot {
-                it.title.lowercase(Locale.ROOT) in replacing
+                homeShelfIdentity(it) in replacing
             })
             return
         }
         val added = shelves.withoutRepeatsOf(existing)
-            .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
+            .filter { homeSeenTitles.add(homeShelfIdentity(it)) }
         if (added.isNotEmpty()) _home.value = UiState.Success(existing + added)
     }
+
+    private fun homeShelfIdentity(shelf: HomeShelf): String =
+        if (shelf.kind == HomeShelfKind.GENERIC) {
+            "title:${shelf.title.lowercase(Locale.ROOT)}"
+        } else {
+            "kind:${shelf.kind.name}"
+        }
 
     /** Refreshes the core feed without blanking the current Play page first. */
     private suspend fun refreshHome(identity: String?) = coroutineScope {
         if (navidromeMode) {
-            AppNavidromeCatalogue.current.home(navidromeLabels()).onSuccess { shelves ->
-                if (identity == catalogueIdentity() && shelves.isNotEmpty()) _home.value = UiState.Success(shelves)
+            AppNavidromeCatalogue.current.recentlyPlayedShelf(navidromeLabels()).onSuccess { recent ->
+                if (identity != catalogueIdentity()) return@onSuccess
+                val existing = (_home.value as? UiState.Success)?.data ?: return@onSuccess
+                val updated = existing.filterNot {
+                    it.kind == HomeShelfKind.NAVIDROME_RECENT || it.title == recent.title
+                }.toMutableList()
+                if (recent.items.isNotEmpty()) {
+                    val position = if (updated.firstOrNull()?.kind == HomeShelfKind.NAVIDROME_NEWEST) 1 else 0
+                    updated.add(position, recent)
+                }
+                _home.value = UiState.Success(updated)
             }
             return@coroutineScope
         }

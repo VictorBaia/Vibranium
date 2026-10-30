@@ -473,6 +473,15 @@ data class AccountChannel(
     val key: String get() = pageId ?: dataSyncId ?: name
 }
 
+enum class HomeShelfKind {
+    GENERIC,
+    RECENTS,
+    NAVIDROME_NEWEST,
+    NAVIDROME_RECENT,
+    NAVIDROME_FREQUENT,
+    NAVIDROME_RANDOM,
+}
+
 data class HomeShelf(
     val title: String,
     val items: List<ShelfItem>,
@@ -480,6 +489,8 @@ data class HomeShelf(
     val subtitle: String = "",
     val moreBrowseId: String? = null,
     val moreParams: String? = null,
+    /** Stable semantic identity for layouts whose presentation differs by section. */
+    val kind: HomeShelfKind = HomeShelfKind.GENERIC,
 )
 
 /**

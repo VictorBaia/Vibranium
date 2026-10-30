@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +51,8 @@ private val LineShape = RoundedCornerShape(4.dp)
 private val TitleWidths = listOf(0.68f, 0.46f, 0.58f, 0.74f, 0.52f)
 private val SubtitleWidths = listOf(0.34f, 0.44f, 0.27f, 0.38f, 0.31f)
 
+val LocalSkeletonAnimationEnabled = compositionLocalOf { true }
+
 /**
  * One placeholder block, with a highlight sweeping across it.
  *
@@ -60,30 +63,34 @@ private val SubtitleWidths = listOf(0.34f, 0.44f, 0.27f, 0.38f, 0.31f)
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier, shape: Shape = BlockShape) {
     val base = MaterialTheme.colorScheme.surfaceVariant
+    val animate = LocalSkeletonAnimationEnabled.current
     val highlight = MaterialTheme.colorScheme.onSurfaceVariant
         .copy(alpha = 0.16f)
         .compositeOver(base)
-    val sweep = rememberInfiniteTransition(label = "skeleton").animateFloat(
+    val sweep = if (animate) rememberInfiniteTransition(label = "skeleton").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(SHIMMER_PERIOD_MS, easing = LinearEasing)),
         label = "sweep",
-    )
+    ) else null
     Box(
         modifier
             .clip(shape)
             .drawWithCache {
-                // The band travels from fully off one edge to fully off the
-                // other, which leaves a beat of flat grey between passes rather
-                // than a highlight permanently parked somewhere on the block.
-                val band = size.width * 0.5f
-                val startX = -band + sweep.value * (size.width + band * 2)
-                val brush = Brush.horizontalGradient(
-                    colors = listOf(base, highlight, base),
-                    startX = startX,
-                    endX = startX + band,
-                )
-                onDrawBehind { drawRect(brush) }
+                if (sweep == null) {
+                    onDrawBehind { drawRect(base) }
+                } else {
+                    // The band travels from fully off one edge to fully off the
+                    // other, which leaves a beat of flat grey between passes.
+                    val band = size.width * 0.5f
+                    val startX = -band + sweep.value * (size.width + band * 2)
+                    val brush = Brush.horizontalGradient(
+                        colors = listOf(base, highlight, base),
+                        startX = startX,
+                        endX = startX + band,
+                    )
+                    onDrawBehind { drawRect(brush) }
+                }
             },
     )
 }

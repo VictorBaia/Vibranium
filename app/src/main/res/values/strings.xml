@@ -327,6 +327,10 @@
     <string name="app_icon_pixel_glass_dark" translatable="false">Pixel Glass Dark</string>
     <string name="app_icon_pixel_glass_clear" translatable="false">Pixel Glass Clear</string>
     <string name="app_icon_pixel_glass_clear_dark" translatable="false">Pixel Glass Clear Dark</string>
+    <string name="app_icon_new_1">New icon 1</string>
+    <string name="app_icon_new_2">New icon 2</string>
+    <string name="app_icon_new_3">New icon 3</string>
+    <string name="app_icon_new_4">New icon 4</string>
     <string name="theme">Theme</string>
     <string name="reduce_animation">Reduce animation</string>
     <string name="reduce_animation_subtitle">Freezes the main player’s gradient instead of drifting</string>

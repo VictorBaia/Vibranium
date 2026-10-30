@@ -1376,6 +1376,10 @@
     <string name="search_addons_none">Nenhum addon ativado. Adicione um em Configurações → Fontes.</string>
     <string name="app_icon">Ícone do app</string>
     <string name="app_icon_default">Padrão</string>
+    <string name="app_icon_new_1">Novo ícone 1</string>
+    <string name="app_icon_new_2">Novo ícone 2</string>
+    <string name="app_icon_new_3">Novo ícone 3</string>
+    <string name="app_icon_new_4">Novo ícone 4</string>
     <string name="show_queue_history">Mostrar histórico da fila</string>
     <string name="show_queue_history_subtitle">Mostra até 25 músicas já tocadas acima de «Tocando agora» na fila</string>
     <string name="not_enough_this_week">Ouça mais algumas músicas esta semana para desbloquear seu Replay.</string>

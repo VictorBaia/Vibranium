@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import coil3.compose.AsyncImage
 import com.music.bitchord.data.model.CARD_ART_PX
 import com.music.bitchord.data.model.HEADER_ART_PX
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeShelfKind
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.ShelfItem
 import com.music.bitchord.data.model.Song
@@ -73,6 +75,7 @@ import com.music.bitchord.data.model.artworkAt
 import com.music.bitchord.data.settings.LibraryViewType
 import com.music.bitchord.ui.components.HERO_CARD_RATIO
 import com.music.bitchord.ui.components.MessageState
+import com.music.bitchord.ui.components.LocalSkeletonAnimationEnabled
 import com.music.bitchord.ui.components.PAGE_GUTTER
 import com.music.bitchord.ui.components.RowMoreButton
 import com.music.bitchord.ui.components.PlayingAccent
@@ -95,18 +98,21 @@ private val HOME_TITLE_LIFT = 28.dp
 
 private const val RECENT_TRACKS_PER_COLUMN = 4
 
-private fun isRecentsShelf(title: String): Boolean = title.trim().let { value ->
-    value.equals("Recents", ignoreCase = true) ||
-        value.equals("Recently played", ignoreCase = true) ||
-        value.equals("Recently Played", ignoreCase = true) ||
-        value.equals("Reproduzidos recentemente", ignoreCase = true) ||
-        value.equals("Tocados recentemente", ignoreCase = true) ||
-        value.equals("Recentes", ignoreCase = true) ||
-        value.equals("Recentemente reproduzido", ignoreCase = true) ||
-        value.equals("Recently played albums", ignoreCase = true) ||
-        value.equals("Álbuns ouvidos recentemente", ignoreCase = true) ||
-        value.equals("Gần đây", ignoreCase = true) ||
-        value.equals("最近", ignoreCase = true)
+private fun isRecentsShelf(shelf: HomeShelf): Boolean {
+    if (shelf.kind == HomeShelfKind.RECENTS || shelf.kind == HomeShelfKind.NAVIDROME_RECENT) return true
+    return shelf.title.trim().let { value ->
+        value.equals("Recents", ignoreCase = true) ||
+            value.equals("Recently played", ignoreCase = true) ||
+            value.equals("Recently Played", ignoreCase = true) ||
+            value.equals("Reproduzidos recentemente", ignoreCase = true) ||
+            value.equals("Tocados recentemente", ignoreCase = true) ||
+            value.equals("Recentes", ignoreCase = true) ||
+            value.equals("Recentemente reproduzido", ignoreCase = true) ||
+            value.equals("Recently played albums", ignoreCase = true) ||
+            value.equals("Álbuns ouvidos recentemente", ignoreCase = true) ||
+            value.equals("Gần đây", ignoreCase = true) ||
+            value.equals("最近", ignoreCase = true)
+    }
 }
 
 private fun List<ShelfItem>.playingItemMatcher(song: Song?): (ShelfItem) -> Boolean {
@@ -153,11 +159,14 @@ fun HomeScreen(
      * there every shelf is the ordinary row.
      */
     leadHero: Boolean = true,
+    stableShelfKeys: Boolean = false,
+    animateLoading: Boolean = true,
     currentSong: Song? = null,
     isPlaying: Boolean = false,
 ) {
     val recentsViewType by AppUi.host.homeRecentsViewType.collectAsStateWithLifecycle()
 
+    CompositionLocalProvider(LocalSkeletonAnimationEnabled provides animateLoading) {
     PullToRefresh(
         refreshing = refreshing,
         onRefresh = onRefresh,
@@ -215,6 +224,7 @@ fun HomeScreen(
                         currentSong = currentSong,
                         isPlaying = isPlaying,
                         firstIsHero = leadHero && !recentlyPlayedLoading,
+                        stableShelfKeys = stableShelfKeys,
                         recentsViewType = recentsViewType,
                         onRecentsViewTypeToggle = {
                             AppUi.host.setHomeRecentsViewType(
@@ -230,6 +240,7 @@ fun HomeScreen(
                 }
             }
         }
+    }
     }
 
     if (onLoadMore != null && state is UiState.Success) {
@@ -263,13 +274,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     currentSong: Song?,
     isPlaying: Boolean,
     firstIsHero: Boolean = true,
+    stableShelfKeys: Boolean,
     recentsViewType: LibraryViewType,
     onRecentsViewTypeToggle: () -> Unit,
 ) {
     shelves.forEachIndexed { index, shelf ->
-        item(key = shelf.title + index) {
+        val key = when {
+            stableShelfKeys && shelf.kind != HomeShelfKind.GENERIC -> shelf.kind.name
+            stableShelfKeys -> shelf.title
+            else -> shelf.title + index
+        }
+        item(key = key) {
             val openItem: (ShelfItem) -> Unit = { item -> onItemClick(item, shelf.title) }
-            if (isRecentsShelf(shelf.title)) {
+            if (isRecentsShelf(shelf)) {
                 RecentShelf(
                     shelf = shelf,
                     onItemClick = openItem,

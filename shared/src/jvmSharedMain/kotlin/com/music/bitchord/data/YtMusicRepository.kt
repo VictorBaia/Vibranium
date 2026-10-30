@@ -11,6 +11,7 @@ import com.music.bitchord.data.model.ArtistPage
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.HomeFeed
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeShelfKind
 import com.music.bitchord.data.model.LibraryPage
 import com.music.bitchord.data.model.LibraryState
 import com.music.bitchord.data.model.LikeStatus
@@ -124,6 +125,7 @@ object YtMusicRepository {
                     browseId = null,
                 )
             },
+            kind = HomeShelfKind.RECENTS,
         )
     }
 
